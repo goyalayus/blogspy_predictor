@@ -1,0 +1,12 @@
+# Core ML & Data
+scikit-learn
+scipy
+pandas
+numpy
+joblib
+lightgbm  # Important: joblib needs this to load the booster object
+
+# Web Scraping
+requests
+beautifulsoup4
+lxml
