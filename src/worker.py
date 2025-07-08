@@ -27,7 +27,6 @@ PERSONAL_BLOG_LABEL = "PERSONAL_BLOG"
 logger = get_logger('worker')
 
 def fetch_content(url: str) -> dict:
-    """Fetches HTML and extracts clean text from a URL."""
     response = requests.get(url, timeout=REQUEST_TIMEOUT, headers=REQUEST_HEADERS)
     response.raise_for_status()
     html_content = response.text
@@ -42,7 +41,6 @@ def fetch_content(url: str) -> dict:
     return {"html_content": html_content, "text_content": text_content}
 
 def extract_links_from_html(html_content: str, base_url: str) -> list[str]:
-    """Parses HTML and extracts all valid, absolute URLs."""
     soup = BeautifulSoup(html_content, 'lxml')
     links = set()
     parsed_base = urlparse(base_url)
@@ -62,7 +60,6 @@ def extract_links_from_html(html_content: str, base_url: str) -> list[str]:
 
 
 def process_classification_task(db, url_record: URL, artifact: dict):
-    """Fetches, classifies, and updates the URL's status accordingly."""
     logger.info(f"[CLASSIFY] Processing {url_record.url}")
     try:
         site_data = fetch_content(url_record.url)
@@ -84,25 +81,26 @@ def process_classification_task(db, url_record: URL, artifact: dict):
 
         url_record.classification = label
         url_record.confidence = float(confidence)
-        url_record.content = site_data['text_content']
         url_record.processed_at = datetime.now(timezone.utc)
         
         if label == PERSONAL_BLOG_LABEL:
             url_record.status = CrawlStatus.pending_crawl
-            logger.info(f"✅ Classified as PERSONAL_BLOG. Queued for crawling.")
+            url_record.content = site_data['text_content']
+            logger.info(f"✅ Classified as PERSONAL_BLOG. Stored content and queued for crawling.")
         else:
             url_record.status = CrawlStatus.irrelevant
-            logger.info(f"❌ Classified as {label}. Marked as irrelevant.")
+            url_record.content = None
+            logger.info(f"❌ Classified as {label}. Marked as irrelevant, content not stored.")
 
     except Exception as e:
         logger.error(f"Failed to classify {url_record.url}: {e}", exc_info=False)
         url_record.status = CrawlStatus.failed
         url_record.error_message = str(e)
+        url_record.content = None
 
     db.commit()
 
 def process_crawl_task(db, url_record: URL):
-    """Fetches a classified personal blog, extracts links, and queues them."""
     logger.info(f"[CRAWL] Processing {url_record.url}")
     try:
         site_data = fetch_content(url_record.url)
