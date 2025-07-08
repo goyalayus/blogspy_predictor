@@ -4,9 +4,18 @@ scipy
 pandas
 numpy
 joblib
-lightgbm  # Important: joblib needs this to load the booster object
+lightgbm # Important: joblib needs this to load the booster object
 
 # Web Scraping
 requests
 beautifulsoup4
 lxml
+
+fastapi
+uvicorn[standard]
+
+sqlalchemy
+psycopg2-binary  # Postgres driver
+
+pydantic-settings
+validators
