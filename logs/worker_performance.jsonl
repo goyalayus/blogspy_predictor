@@ -29,3 +29,40 @@
 {"timestamp": "2025-07-09 18:40:53,732", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2019/10/01/zine-revenue-2019/. Added 1 new URLs.", "logger_name": "worker"}
 {"timestamp": "2025-07-09 18:40:55,780", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2022/04/12/a-list-of-new-ish--command-line-tools/", "logger_name": "worker"}
 {"timestamp": "2025-07-09 18:40:58,033", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2022/04/12/a-list-of-new-ish--command-line-tools/. Added 73 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:53:50,756", "level": "INFO", "message": "--- Starting BlogSpy Worker ---", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:53:51,132", "level": "INFO", "message": "Model loaded successfully.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:53:51,233", "level": "DEBUG", "message": "Starting new worker cycle", "logger_name": "worker", "event": "cycle_start", "performance": {"cpu_percent": 17.3, "memory_rss_mb": 187.6}}
+{"timestamp": "2025-07-09 18:53:59,503", "level": "INFO", "message": "Fetched 3 crawling jobs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:02,370", "level": "INFO", "message": "[CRAWL] Starting: https://www.joshwcomeau.com/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:04,027", "level": "WARNING", "message": "\u26a0\ufe0f Detected CSR for https://www.joshwcomeau.com/. Skipping crawl.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:05,851", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:12,629", "level": "DEBUG", "message": "Created 621 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 2, "url": "https://jvns.ca/", "edges_created": 621}
+{"timestamp": "2025-07-09 18:54:12,629", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/. Added 621 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:14,656", "level": "INFO", "message": "[CRAWL] Starting: https://goyalayus.github.io/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:18,937", "level": "DEBUG", "message": "Created 13 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 3, "url": "https://goyalayus.github.io/", "edges_created": 13}
+{"timestamp": "2025-07-09 18:54:18,938", "level": "INFO", "message": "\u2705 Crawl complete for https://goyalayus.github.io/. Added 13 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:20,286", "level": "DEBUG", "message": "Starting new worker cycle", "logger_name": "worker", "event": "cycle_start", "performance": {"cpu_percent": 5.0, "memory_rss_mb": 198.1}}
+{"timestamp": "2025-07-09 18:54:20,930", "level": "INFO", "message": "Fetched 5 crawling jobs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:24,890", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2015/07/04/bootstrap-confidence-intervals/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:29,196", "level": "DEBUG", "message": "Created 2 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 10, "url": "https://jvns.ca/blog/2015/07/04/bootstrap-confidence-intervals/", "edges_created": 2}
+{"timestamp": "2025-07-09 18:54:29,196", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2015/07/04/bootstrap-confidence-intervals/. Added 2 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:31,244", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2014/10/08/how-to-set-up-a-blog-in-5-minutes/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:34,505", "level": "DEBUG", "message": "Created 12 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 11, "url": "https://jvns.ca/blog/2014/10/08/how-to-set-up-a-blog-in-5-minutes/", "edges_created": 12}
+{"timestamp": "2025-07-09 18:54:34,506", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2014/10/08/how-to-set-up-a-blog-in-5-minutes/. Added 12 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:36,568", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2021/01/09/day-35--launching-my-vms-more-reliably/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:40,868", "level": "DEBUG", "message": "Created 2 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 12, "url": "https://jvns.ca/blog/2021/01/09/day-35--launching-my-vms-more-reliably/", "edges_created": 2}
+{"timestamp": "2025-07-09 18:54:40,868", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2021/01/09/day-35--launching-my-vms-more-reliably/. Added 2 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:42,714", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2019/06/23/a-few-debugging-resources/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:46,602", "level": "DEBUG", "message": "Created 18 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 13, "url": "https://jvns.ca/blog/2019/06/23/a-few-debugging-resources/", "edges_created": 18}
+{"timestamp": "2025-07-09 18:54:46,602", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2019/06/23/a-few-debugging-resources/. Added 18 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:48,241", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2015/03/06/you-can-choose-who-submits-talks-to-your-conference/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:52,337", "level": "DEBUG", "message": "Created 4 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 14, "url": "https://jvns.ca/blog/2015/03/06/you-can-choose-who-submits-talks-to-your-conference/", "edges_created": 4}
+{"timestamp": "2025-07-09 18:54:52,337", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2015/03/06/you-can-choose-who-submits-talks-to-your-conference/. Added 4 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:53,256", "level": "DEBUG", "message": "Starting new worker cycle", "logger_name": "worker", "event": "cycle_start", "performance": {"cpu_percent": 6.3, "memory_rss_mb": 198.23}}
+{"timestamp": "2025-07-09 18:54:54,181", "level": "INFO", "message": "Fetched 5 crawling jobs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:57,460", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2018/08/05/new-zine--bite-size-command-line/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:55:01,039", "level": "DEBUG", "message": "Created 4 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 15, "url": "https://jvns.ca/blog/2018/08/05/new-zine--bite-size-command-line/", "edges_created": 4}
+{"timestamp": "2025-07-09 18:55:01,039", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2018/08/05/new-zine--bite-size-command-line/. Added 4 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:55:02,715", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2013/10/24/day-16-gzip-plus-poetry-equals-awesome/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:55:07,490", "level": "DEBUG", "message": "Created 9 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 16, "url": "https://jvns.ca/blog/2013/10/24/day-16-gzip-plus-poetry-equals-awesome/", "edges_created": 9}
+{"timestamp": "2025-07-09 18:55:07,490", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2013/10/24/day-16-gzip-plus-poetry-equals-awesome/. Added 9 new URLs.", "logger_name": "worker"}

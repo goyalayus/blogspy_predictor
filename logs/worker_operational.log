@@ -23,3 +23,28 @@
 2025-07-09 18:40:53,732 - worker - INFO - ✅ Crawl complete for https://jvns.ca/blog/2019/10/01/zine-revenue-2019/. Added 1 new URLs.
 2025-07-09 18:40:55,780 - worker - INFO - [CRAWL] Starting: https://jvns.ca/blog/2022/04/12/a-list-of-new-ish--command-line-tools/
 2025-07-09 18:40:58,033 - worker - INFO - ✅ Crawl complete for https://jvns.ca/blog/2022/04/12/a-list-of-new-ish--command-line-tools/. Added 73 new URLs.
+2025-07-09 18:53:50,756 - worker - INFO - --- Starting BlogSpy Worker ---
+2025-07-09 18:53:51,132 - worker - INFO - Model loaded successfully.
+2025-07-09 18:53:59,503 - worker - INFO - Fetched 3 crawling jobs.
+2025-07-09 18:54:02,370 - worker - INFO - [CRAWL] Starting: https://www.joshwcomeau.com/
+2025-07-09 18:54:04,027 - worker - WARNING - ⚠️ Detected CSR for https://www.joshwcomeau.com/. Skipping crawl.
+2025-07-09 18:54:05,851 - worker - INFO - [CRAWL] Starting: https://jvns.ca/
+2025-07-09 18:54:12,629 - worker - INFO - ✅ Crawl complete for https://jvns.ca/. Added 621 new URLs.
+2025-07-09 18:54:14,656 - worker - INFO - [CRAWL] Starting: https://goyalayus.github.io/
+2025-07-09 18:54:18,938 - worker - INFO - ✅ Crawl complete for https://goyalayus.github.io/. Added 13 new URLs.
+2025-07-09 18:54:20,930 - worker - INFO - Fetched 5 crawling jobs.
+2025-07-09 18:54:24,890 - worker - INFO - [CRAWL] Starting: https://jvns.ca/blog/2015/07/04/bootstrap-confidence-intervals/
+2025-07-09 18:54:29,196 - worker - INFO - ✅ Crawl complete for https://jvns.ca/blog/2015/07/04/bootstrap-confidence-intervals/. Added 2 new URLs.
+2025-07-09 18:54:31,244 - worker - INFO - [CRAWL] Starting: https://jvns.ca/blog/2014/10/08/how-to-set-up-a-blog-in-5-minutes/
+2025-07-09 18:54:34,506 - worker - INFO - ✅ Crawl complete for https://jvns.ca/blog/2014/10/08/how-to-set-up-a-blog-in-5-minutes/. Added 12 new URLs.
+2025-07-09 18:54:36,568 - worker - INFO - [CRAWL] Starting: https://jvns.ca/blog/2021/01/09/day-35--launching-my-vms-more-reliably/
+2025-07-09 18:54:40,868 - worker - INFO - ✅ Crawl complete for https://jvns.ca/blog/2021/01/09/day-35--launching-my-vms-more-reliably/. Added 2 new URLs.
+2025-07-09 18:54:42,714 - worker - INFO - [CRAWL] Starting: https://jvns.ca/blog/2019/06/23/a-few-debugging-resources/
+2025-07-09 18:54:46,602 - worker - INFO - ✅ Crawl complete for https://jvns.ca/blog/2019/06/23/a-few-debugging-resources/. Added 18 new URLs.
+2025-07-09 18:54:48,241 - worker - INFO - [CRAWL] Starting: https://jvns.ca/blog/2015/03/06/you-can-choose-who-submits-talks-to-your-conference/
+2025-07-09 18:54:52,337 - worker - INFO - ✅ Crawl complete for https://jvns.ca/blog/2015/03/06/you-can-choose-who-submits-talks-to-your-conference/. Added 4 new URLs.
+2025-07-09 18:54:54,181 - worker - INFO - Fetched 5 crawling jobs.
+2025-07-09 18:54:57,460 - worker - INFO - [CRAWL] Starting: https://jvns.ca/blog/2018/08/05/new-zine--bite-size-command-line/
+2025-07-09 18:55:01,039 - worker - INFO - ✅ Crawl complete for https://jvns.ca/blog/2018/08/05/new-zine--bite-size-command-line/. Added 4 new URLs.
+2025-07-09 18:55:02,715 - worker - INFO - [CRAWL] Starting: https://jvns.ca/blog/2013/10/24/day-16-gzip-plus-poetry-equals-awesome/
+2025-07-09 18:55:07,490 - worker - INFO - ✅ Crawl complete for https://jvns.ca/blog/2013/10/24/day-16-gzip-plus-poetry-equals-awesome/. Added 9 new URLs.

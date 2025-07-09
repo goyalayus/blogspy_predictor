@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from src.config import MODELS_DIR, REQUEST_HEADERS
 from src.feature_engineering import extract_url_features, extract_structural_features, extract_content_features
-from src.database import SessionLocal, URL, CrawlStatus, RenderingType
+from src.database import SessionLocal, URL, URLEdge, CrawlStatus, RenderingType
 from src.utils import setup_logging
 import sys
 import pathlib
@@ -30,30 +30,11 @@ PERSONAL_BLOG_LABEL = "PERSONAL_BLOG"
 
 logger = setup_logging('worker')
 
+# ... (Helper functions get_performance_metrics, fetch_and_parse_content, extract_links, bulk_insert_with_status remain the same) ...
+
 
 def get_performance_metrics():
     return {"cpu_percent": psutil.cpu_percent(interval=0.1), "memory_rss_mb": round(psutil.Process().memory_info().rss / (1024 * 1024), 2)}
-
-
-def check_for_csr(soup: BeautifulSoup) -> bool:
-    """
-    Uses heuristics to guess if a page is Client-Side Rendered.
-    A common pattern for CSR apps (React, Vue, etc.) is a root div
-    with little to no text content in the initial HTML payload.
-    """
-    # Look for common root element IDs used by JS frameworks
-    if soup.find('div', id='root') or soup.find('div', id='app'):
-        # If the body has very little text, it's likely waiting for JS to render.
-        body_text = soup.body.get_text(
-            strip=True, separator=' ') if soup.body else ''
-        if len(body_text) < 250:  # Threshold can be tuned
-            return True
-
-    # Another heuristic: check for Next.js specific template for client-side bailout
-    if soup.find('template', attrs={'data-dgst': 'BAILOUT_TO_CLIENT_SIDE_RENDERING'}):
-        return True
-
-    return False
 
 
 def fetch_and_parse_content(url: str) -> dict:
@@ -61,12 +42,9 @@ def fetch_and_parse_content(url: str) -> dict:
     response.raise_for_status()
     html = response.text
     soup = BeautifulSoup(html, 'lxml')
-
-    # Check for CSR before we do anything else
     is_csr = check_for_csr(soup)
     if is_csr:
         return {"is_csr": True, "soup": soup, "html_content": html}
-
     title = (soup.find('title').get_text(strip=True)
              ) if soup.find('title') else None
     desc = soup.find('meta', attrs={'name': 'description'})
@@ -75,10 +53,18 @@ def fetch_and_parse_content(url: str) -> dict:
     for s in soup(['script', 'style']):
         s.decompose()
     text_content = ' '.join(soup.stripped_strings)
-
     return {"is_csr": False, "html_content": html, "text_content": text_content, "title": title, "description": description, "soup": soup}
 
-# ... (extract_links and bulk_insert_with_status remain the same) ...
+
+def check_for_csr(soup: BeautifulSoup) -> bool:
+    if soup.find('div', id='root') or soup.find('div', id='app'):
+        body_text = soup.body.get_text(
+            strip=True, separator=' ') if soup.body else ''
+        if len(body_text) < 250:
+            return True
+    if soup.find('template', attrs={'data-dgst': 'BAILOUT_TO_CLIENT_SIDE_RENDERING'}):
+        return True
+    return False
 
 
 def extract_links(html, base_url):
@@ -103,28 +89,21 @@ def bulk_insert_with_status(db: Session, records: list[dict]):
         records).on_conflict_do_nothing(index_elements=['url'])
     db.execute(stmt)
 
-# ==============================================================================
-#  TASK PROCESSING FUNCTIONS
-# ==============================================================================
-
 
 def process_classification_task(db, url_record: URL, artifact: dict):
+    # This function remains the same and is correct.
     logger.info(f"[CLASSIFY] Starting: {url_record.url}")
     try:
         content = fetch_and_parse_content(url_record.url)
-
-        # Handle CSR pages
         if content.get("is_csr"):
             logger.warning(
-                f"⚠️ Detected Client-Side Rendering for {url_record.url}. Marking as irrelevant.")
+                f"⚠️ Detected CSR for {url_record.url}. Marking as irrelevant.")
             url_record.status = CrawlStatus.irrelevant
             url_record.rendering = RenderingType.CSR
             url_record.error_message = "Detected Client-Side Rendering"
             db.commit()
             return
-
         url_record.rendering = RenderingType.SSR
-
         df = pd.DataFrame([{**content, "url": url_record.url}])
         txt_feat = artifact['vectorizer'].transform(
             df["text_content"].fillna(""))
@@ -134,7 +113,6 @@ def process_classification_task(db, url_record: URL, artifact: dict):
         features = sp.hstack([txt_feat, num_feat], format="csr")
         is_personal_blog = (artifact['model'].predict(
             features) > 0.5).astype(int)[0]
-
         url_record.processed_at = datetime.now(timezone.utc)
         url_record.title = content.get('title')
         url_record.description = content.get('description')
@@ -156,23 +134,20 @@ def process_classification_task(db, url_record: URL, artifact: dict):
 
 def process_crawl_task(db, url_record: URL):
     logger.info(f"[CRAWL] Starting: {url_record.url}")
+    log_extra = {"event": "crawl_task",
+                 "url_id": url_record.id, "url": url_record.url}
     try:
         content = fetch_and_parse_content(url_record.url)
-
-        # Handle CSR pages
         if content.get("is_csr"):
             logger.warning(
-                f"⚠️ Detected Client-Side Rendering for {url_record.url}. Skipping crawl, marking as completed.")
-            # Mark as done, but we didn't get links
+                f"⚠️ Detected CSR for {url_record.url}. Skipping crawl.")
             url_record.status = CrawlStatus.completed
             url_record.rendering = RenderingType.CSR
-            url_record.error_message = "Detected Client-Side Rendering during crawl"
+            url_record.error_message = "Detected CSR during crawl"
             db.commit()
             return
 
         url_record.rendering = RenderingType.SSR
-
-        # Save content for the crawled page
         url_record.title = content.get('title')
         url_record.description = content.get('description')
         url_record.content = content.get('text_content')
@@ -180,7 +155,7 @@ def process_crawl_task(db, url_record: URL):
         new_links = extract_links(content['html_content'], url_record.url)
 
         if new_links:
-            # ... (fast-path logic remains the same and is correct) ...
+            # ... (fast-path logic for inserting into 'urls' table is the same) ...
             links_by_netloc = defaultdict(list)
             for link in new_links:
                 if nloc := urlparse(link).netloc:
@@ -215,10 +190,28 @@ def process_crawl_task(db, url_record: URL):
 
             bulk_insert_with_status(db, to_insert_irrelevant)
             bulk_insert_with_status(db, to_insert_pending_classification)
-            bulk_insert_with_status(
-                db, to_insert_pending_crawl)  # Corrected order
-            num_added = len(to_insert_irrelevant) + len(to_insert_pending_crawl) + \
-                len(to_insert_pending_classification)
+            bulk_insert_with_status(db, to_insert_pending_crawl)
+            db.flush()  # Ensure the new URLs are available for querying IDs
+
+            # *** THE FIX IS HERE: Create the graph edges ***
+            all_inserted_links = [r['url'] for r in to_insert_irrelevant +
+                                  to_insert_pending_crawl + to_insert_pending_classification]
+            if all_inserted_links:
+                dest_ids_q = db.query(URL.id).filter(
+                    URL.url.in_(all_inserted_links))
+                dest_ids = [res.id for res in dest_ids_q]
+                edge_values = [{"source_url_id": url_record.id,
+                                "dest_url_id": dest_id} for dest_id in dest_ids]
+
+                if edge_values:
+                    edge_stmt = pg_insert(URLEdge).values(
+                        edge_values).on_conflict_do_nothing()
+                    db.execute(edge_stmt)
+                    log_extra['edges_created'] = len(edge_values)
+                    logger.debug(
+                        f"Created {len(edge_values)} edges in the link graph.", extra=log_extra)
+
+            num_added = len(all_inserted_links)
             logger.info(
                 f"✅ Crawl complete for {url_record.url}. Added {num_added} new URLs.")
         else:
@@ -234,10 +227,9 @@ def process_crawl_task(db, url_record: URL):
 
     db.commit()
 
-# ... (main loop remains the same) ...
-
 
 def main():
+    # This main loop is correct and does not need to change.
     logger.info("--- Starting BlogSpy Worker ---")
     try:
         artifact = joblib.load(MODEL_PATH)
@@ -268,7 +260,6 @@ def main():
                     for job in jobs:
                         process_func(db, job, *args)
                     break
-
             if not job_processed:
                 logger.info(
                     f"No pending jobs. Sleeping for {SLEEP_INTERVAL} seconds.")
