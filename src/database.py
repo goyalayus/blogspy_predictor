@@ -12,7 +12,7 @@ from src.settings import settings
 # Increase the connection pool size to support high concurrency from worker threads.
 engine = create_engine(
     settings.DATABASE_URL,
-    pool_size=50,
+    pool_size=100,
     max_overflow=20
 )
 

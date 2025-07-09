@@ -7,8 +7,6 @@ Directory structure:
     ├── requirements.txt
     ├── searchmysite_urls.csv
     ├── seed_database.py
-    ├── logs/
-    │   └── worker_performance.jsonl
     ├── outputs/
     │   └── models/
     │       └── lgbm_final_model.joblib
@@ -5343,80 +5341,6 @@ if __name__ == "__main__":
 
 
 ================================================
-File: logs/worker_performance.jsonl
-================================================
-{"timestamp": "2025-07-09 18:31:17,095", "level": "INFO", "message": "--- Starting BlogSpy Worker ---", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:31:17,419", "level": "INFO", "message": "Model loaded successfully.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:31:17,521", "level": "DEBUG", "message": "Starting new worker cycle", "logger_name": "worker", "event": "cycle_start", "performance": {"cpu_percent": 19.0, "memory_rss_mb": 188.93}}
-{"timestamp": "2025-07-09 18:31:26,016", "level": "INFO", "message": "Fetched 2 crawling jobs.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:31:28,679", "level": "INFO", "message": "[CRAWL] Starting: https://www.joshwcomeau.com/", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:31:30,319", "level": "DEBUG", "message": "Crawl insertion plan", "logger_name": "worker", "event": "crawl_task", "url_id": 1, "url": "https://www.joshwcomeau.com/", "insert_stats": {"irrelevant": 0, "pending_crawl": 33, "pending_classification": 8}}
-{"timestamp": "2025-07-09 18:31:31,750", "level": "INFO", "message": "\u2705 Crawl complete for https://www.joshwcomeau.com/. Added 41 new URLs.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:31:34,210", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:31:37,642", "level": "DEBUG", "message": "Crawl insertion plan", "logger_name": "worker", "event": "crawl_task", "url_id": 2, "url": "https://jvns.ca/", "insert_stats": {"irrelevant": 0, "pending_crawl": 615, "pending_classification": 6}}
-{"timestamp": "2025-07-09 18:31:39,173", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/. Added 621 new URLs.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:31:40,351", "level": "DEBUG", "message": "Starting new worker cycle", "logger_name": "worker", "event": "cycle_start", "performance": {"cpu_percent": 2.6, "memory_rss_mb": 199.06}}
-{"timestamp": "2025-07-09 18:31:41,172", "level": "INFO", "message": "Fetched 5 crawling jobs.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:31:44,861", "level": "INFO", "message": "[CRAWL] Starting: https://www.joshwcomeau.com/react/", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:40:19,752", "level": "INFO", "message": "--- Starting BlogSpy Worker ---", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:40:20,221", "level": "INFO", "message": "Model loaded successfully.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:40:20,322", "level": "DEBUG", "message": "Starting new worker cycle", "logger_name": "worker", "event": "cycle_start", "performance": {"cpu_percent": 25.0, "memory_rss_mb": 189.02}}
-{"timestamp": "2025-07-09 18:40:27,518", "level": "INFO", "message": "Fetched 3 crawling jobs.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:40:30,386", "level": "INFO", "message": "[CRAWL] Starting: https://www.joshwcomeau.com/", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:40:30,994", "level": "WARNING", "message": "\u26a0\ufe0f Detected Client-Side Rendering for https://www.joshwcomeau.com/. Skipping crawl, marking as completed.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:40:32,842", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:40:36,790", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/. Added 621 new URLs.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:40:38,433", "level": "INFO", "message": "[CRAWL] Starting: https://goyalayus.github.io/", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:40:40,892", "level": "INFO", "message": "\u2705 Crawl complete for https://goyalayus.github.io/. Added 13 new URLs.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:40:41,957", "level": "DEBUG", "message": "Starting new worker cycle", "logger_name": "worker", "event": "cycle_start", "performance": {"cpu_percent": 3.8, "memory_rss_mb": 199.77}}
-{"timestamp": "2025-07-09 18:40:42,680", "level": "INFO", "message": "Fetched 5 crawling jobs.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:40:46,371", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2014/07/17/ruby-rogues/", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:40:49,636", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2014/07/17/ruby-rogues/. Added 2 new URLs.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:40:51,275", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2019/10/01/zine-revenue-2019/", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:40:53,732", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2019/10/01/zine-revenue-2019/. Added 1 new URLs.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:40:55,780", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2022/04/12/a-list-of-new-ish--command-line-tools/", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:40:58,033", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2022/04/12/a-list-of-new-ish--command-line-tools/. Added 73 new URLs.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:53:50,756", "level": "INFO", "message": "--- Starting BlogSpy Worker ---", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:53:51,132", "level": "INFO", "message": "Model loaded successfully.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:53:51,233", "level": "DEBUG", "message": "Starting new worker cycle", "logger_name": "worker", "event": "cycle_start", "performance": {"cpu_percent": 17.3, "memory_rss_mb": 187.6}}
-{"timestamp": "2025-07-09 18:53:59,503", "level": "INFO", "message": "Fetched 3 crawling jobs.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:54:02,370", "level": "INFO", "message": "[CRAWL] Starting: https://www.joshwcomeau.com/", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:54:04,027", "level": "WARNING", "message": "\u26a0\ufe0f Detected CSR for https://www.joshwcomeau.com/. Skipping crawl.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:54:05,851", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:54:12,629", "level": "DEBUG", "message": "Created 621 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 2, "url": "https://jvns.ca/", "edges_created": 621}
-{"timestamp": "2025-07-09 18:54:12,629", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/. Added 621 new URLs.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:54:14,656", "level": "INFO", "message": "[CRAWL] Starting: https://goyalayus.github.io/", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:54:18,937", "level": "DEBUG", "message": "Created 13 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 3, "url": "https://goyalayus.github.io/", "edges_created": 13}
-{"timestamp": "2025-07-09 18:54:18,938", "level": "INFO", "message": "\u2705 Crawl complete for https://goyalayus.github.io/. Added 13 new URLs.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:54:20,286", "level": "DEBUG", "message": "Starting new worker cycle", "logger_name": "worker", "event": "cycle_start", "performance": {"cpu_percent": 5.0, "memory_rss_mb": 198.1}}
-{"timestamp": "2025-07-09 18:54:20,930", "level": "INFO", "message": "Fetched 5 crawling jobs.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:54:24,890", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2015/07/04/bootstrap-confidence-intervals/", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:54:29,196", "level": "DEBUG", "message": "Created 2 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 10, "url": "https://jvns.ca/blog/2015/07/04/bootstrap-confidence-intervals/", "edges_created": 2}
-{"timestamp": "2025-07-09 18:54:29,196", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2015/07/04/bootstrap-confidence-intervals/. Added 2 new URLs.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:54:31,244", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2014/10/08/how-to-set-up-a-blog-in-5-minutes/", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:54:34,505", "level": "DEBUG", "message": "Created 12 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 11, "url": "https://jvns.ca/blog/2014/10/08/how-to-set-up-a-blog-in-5-minutes/", "edges_created": 12}
-{"timestamp": "2025-07-09 18:54:34,506", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2014/10/08/how-to-set-up-a-blog-in-5-minutes/. Added 12 new URLs.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:54:36,568", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2021/01/09/day-35--launching-my-vms-more-reliably/", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:54:40,868", "level": "DEBUG", "message": "Created 2 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 12, "url": "https://jvns.ca/blog/2021/01/09/day-35--launching-my-vms-more-reliably/", "edges_created": 2}
-{"timestamp": "2025-07-09 18:54:40,868", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2021/01/09/day-35--launching-my-vms-more-reliably/. Added 2 new URLs.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:54:42,714", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2019/06/23/a-few-debugging-resources/", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:54:46,602", "level": "DEBUG", "message": "Created 18 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 13, "url": "https://jvns.ca/blog/2019/06/23/a-few-debugging-resources/", "edges_created": 18}
-{"timestamp": "2025-07-09 18:54:46,602", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2019/06/23/a-few-debugging-resources/. Added 18 new URLs.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:54:48,241", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2015/03/06/you-can-choose-who-submits-talks-to-your-conference/", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:54:52,337", "level": "DEBUG", "message": "Created 4 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 14, "url": "https://jvns.ca/blog/2015/03/06/you-can-choose-who-submits-talks-to-your-conference/", "edges_created": 4}
-{"timestamp": "2025-07-09 18:54:52,337", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2015/03/06/you-can-choose-who-submits-talks-to-your-conference/. Added 4 new URLs.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:54:53,256", "level": "DEBUG", "message": "Starting new worker cycle", "logger_name": "worker", "event": "cycle_start", "performance": {"cpu_percent": 6.3, "memory_rss_mb": 198.23}}
-{"timestamp": "2025-07-09 18:54:54,181", "level": "INFO", "message": "Fetched 5 crawling jobs.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:54:57,460", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2018/08/05/new-zine--bite-size-command-line/", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:55:01,039", "level": "DEBUG", "message": "Created 4 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 15, "url": "https://jvns.ca/blog/2018/08/05/new-zine--bite-size-command-line/", "edges_created": 4}
-{"timestamp": "2025-07-09 18:55:01,039", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2018/08/05/new-zine--bite-size-command-line/. Added 4 new URLs.", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:55:02,715", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2013/10/24/day-16-gzip-plus-poetry-equals-awesome/", "logger_name": "worker"}
-{"timestamp": "2025-07-09 18:55:07,490", "level": "DEBUG", "message": "Created 9 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 16, "url": "https://jvns.ca/blog/2013/10/24/day-16-gzip-plus-poetry-equals-awesome/", "edges_created": 9}
-{"timestamp": "2025-07-09 18:55:07,490", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2013/10/24/day-16-gzip-plus-poetry-equals-awesome/. Added 9 new URLs.", "logger_name": "worker"}
-
-
-
-================================================
 File: outputs/models/lgbm_final_model.joblib
 ================================================
 [Non-text file]
@@ -5543,7 +5467,13 @@ from urllib.parse import urlparse
 
 from src.settings import settings
 
-engine = create_engine(settings.DATABASE_URL)
+# Increase the connection pool size to support high concurrency from worker threads.
+engine = create_engine(
+    settings.DATABASE_URL,
+    pool_size=50,
+    max_overflow=20
+)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -5563,7 +5493,8 @@ class RenderingType(str, enum.Enum):
     CSR = 'CSR'
     UNKNOWN = 'UNKNOWN'
 
-# --- URL TABLE (SIMPLIFIED) ---
+# --- URL TABLE ---
+# This model is now back to its correct state without the extra columns.
 
 
 class URL(Base):
@@ -5991,45 +5922,42 @@ import warnings
 import scipy.sparse as sp
 import psutil
 import time
+import os
+import threading
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
 from collections import defaultdict
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 project_root = pathlib.Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
 MODEL_PATH = MODELS_DIR / 'lgbm_final_model.joblib'
-BATCH_SIZE = 5
-SLEEP_INTERVAL = 10
-PERSONAL_BLOG_LABEL = "PERSONAL_BLOG"
+BATCH_SIZE = 100
+SLEEP_INTERVAL = 5
+
+IGNORE_EXTENSIONS = (
+    '.pdf', '.jpg', '.jpeg', '.png', '.gif', '.zip', '.rar', '.exe',
+    '.mp3', '.mp4', '.avi', '.mov', '.dmg', '.iso', '.css', '.js',
+    '.xml', '.json', '.gz', '.tar', '.tgz'
+)
 
 logger = setup_logging('worker')
 
-# ... (Helper functions get_performance_metrics, fetch_and_parse_content, extract_links, bulk_insert_with_status remain the same) ...
+thread_local_session = threading.local()
+
+
+def get_session():
+    if not hasattr(thread_local_session, "session"):
+        thread_local_session.session = requests.Session()
+    return thread_local_session.session
+
+# --- Helper Functions (Unchanged) ---
 
 
 def get_performance_metrics():
     return {"cpu_percent": psutil.cpu_percent(interval=0.1), "memory_rss_mb": round(psutil.Process().memory_info().rss / (1024 * 1024), 2)}
-
-
-def fetch_and_parse_content(url: str) -> dict:
-    response = requests.get(url, timeout=10, headers=REQUEST_HEADERS)
-    response.raise_for_status()
-    html = response.text
-    soup = BeautifulSoup(html, 'lxml')
-    is_csr = check_for_csr(soup)
-    if is_csr:
-        return {"is_csr": True, "soup": soup, "html_content": html}
-    title = (soup.find('title').get_text(strip=True)
-             ) if soup.find('title') else None
-    desc = soup.find('meta', attrs={'name': 'description'})
-    description = desc['content'].strip(
-    ) if desc and desc.get('content') else None
-    for s in soup(['script', 'style']):
-        s.decompose()
-    text_content = ' '.join(soup.stripped_strings)
-    return {"is_csr": False, "html_content": html, "text_content": text_content, "title": title, "description": description, "soup": soup}
 
 
 def check_for_csr(soup: BeautifulSoup) -> bool:
@@ -6043,17 +5971,47 @@ def check_for_csr(soup: BeautifulSoup) -> bool:
     return False
 
 
-def extract_links(html, base_url):
+def fetch_and_parse_content(url: str) -> dict:
+    warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
+    session = get_session()
+    response = session.get(url, timeout=(
+        2, 4), headers=REQUEST_HEADERS, allow_redirects=True)
+    response.raise_for_status()
+    content_type = response.headers.get('content-type', '').lower()
+    if 'html' not in content_type:
+        return {"is_non_html": True, "final_url": response.url}
+    html = response.text
+    soup = BeautifulSoup(html, 'lxml')
+    is_csr = check_for_csr(soup)
+    if is_csr:
+        return {"is_csr": True, "soup": soup, "html_content": html, "final_url": response.url}
+    title = (soup.find('title').get_text(strip=True)
+             ) if soup.find('title') else None
+    desc_tag = soup.find('meta', attrs={'name': 'description'})
+    description = desc_tag['content'].strip(
+    ) if desc_tag and desc_tag.get('content') else None
+    for s in soup(['script', 'style']):
+        s.decompose()
+    text_content = ' '.join(soup.stripped_strings)
+    return {"is_non_html": False, "is_csr": False, "html_content": html, "text_content": text_content, "title": title, "description": description, "soup": soup, "final_url": response.url}
+
+
+def extract_links(html: str, base_url: str) -> list[str]:
     links = set()
-    for a in BeautifulSoup(html, 'lxml').find_all('a', href=True):
+    soup = BeautifulSoup(html, 'lxml')
+    for a in soup.find_all('a', href=True):
         href = a['href'].strip()
         if not href or href.startswith(('#', 'mailto:', 'javascript:')):
             continue
+        lower_href = href.lower()
+        if any(lower_href.endswith(ext) for ext in IGNORE_EXTENSIONS):
+            continue
         try:
             full_url = urljoin(base_url, href)
-            if urlparse(full_url).scheme in ['http', 'https']:
-                links.add(full_url)
-        except:
+            parsed_url = urlparse(full_url)
+            if parsed_url.scheme in ['http', 'https']:
+                links.add(parsed_url._replace(fragment="").geturl())
+        except Exception:
             continue
     return list(links)
 
@@ -6065,147 +6023,159 @@ def bulk_insert_with_status(db: Session, records: list[dict]):
         records).on_conflict_do_nothing(index_elements=['url'])
     db.execute(stmt)
 
+# --- NEW HELPER FOR CRAWL LOGIC ---
 
-def process_classification_task(db, url_record: URL, artifact: dict):
-    # This function remains the same and is correct.
-    logger.info(f"[CLASSIFY] Starting: {url_record.url}")
+
+def _perform_crawl_logic(db_session: Session, url_record: URL, content: dict):
+    new_links = extract_links(content['html_content'], content["final_url"])
+    if not new_links:
+        return
+    links_by_netloc = defaultdict(list)
+    for link in new_links:
+        if nloc := urlparse(link).netloc:
+            links_by_netloc[nloc].append(link)
+    existing_urls_q = db_session.query(URL.url).filter(URL.url.in_(new_links))
+    existing_urls = {res.url for res in existing_urls_q}
+    personal_statuses = {CrawlStatus.pending_crawl,
+                         CrawlStatus.crawling, CrawlStatus.completed}
+    domain_decisions_q = db_session.query(URL.netloc, URL.status).filter(
+        URL.netloc.in_(links_by_netloc.keys()),
+        URL.status.in_(personal_statuses | {CrawlStatus.irrelevant})
+    ).distinct(URL.netloc)
+    domain_decisions = {res.netloc: res.status for res in domain_decisions_q}
+    to_insert_irrelevant, to_insert_pending_crawl, to_insert_pending_classification = [], [], []
+    for netloc, links in links_by_netloc.items():
+        for link in links:
+            if link in existing_urls:
+                continue
+            if netloc == urlparse(url_record.url).netloc:
+                to_insert_pending_crawl.append(
+                    {"url": link, "netloc": netloc, "status": CrawlStatus.pending_crawl})
+            elif netloc in domain_decisions:
+                decision = domain_decisions[netloc]
+                if decision == CrawlStatus.irrelevant:
+                    to_insert_irrelevant.append(
+                        {"url": link, "netloc": netloc, "status": CrawlStatus.irrelevant})
+                elif decision in personal_statuses:
+                    to_insert_pending_crawl.append(
+                        {"url": link, "netloc": netloc, "status": CrawlStatus.pending_crawl})
+            else:
+                to_insert_pending_classification.append(
+                    {"url": link, "netloc": netloc, "status": CrawlStatus.pending_classification})
+    bulk_insert_with_status(db_session, to_insert_irrelevant)
+    bulk_insert_with_status(db_session, to_insert_pending_classification)
+    bulk_insert_with_status(db_session, to_insert_pending_crawl)
+    db_session.flush()
+    all_inserted_links = [r['url'] for r in to_insert_irrelevant +
+                          to_insert_pending_crawl + to_insert_pending_classification]
+    if all_inserted_links:
+        dest_ids_q = db_session.query(URL.id).filter(
+            URL.url.in_(all_inserted_links))
+        dest_ids = [res.id for res in dest_ids_q]
+        edge_values = [{"source_url_id": url_record.id,
+                        "dest_url_id": dest_id} for dest_id in dest_ids]
+        if edge_values:
+            edge_stmt = pg_insert(URLEdge).values(
+                edge_values).on_conflict_do_nothing()
+            db_session.execute(edge_stmt)
+    logger.info(
+        f"✅ (From Classify) Crawl logic for {url_record.url} added {len(all_inserted_links)} new URLs.")
+
+# --- Task Processing Functions (FIXED) ---
+
+
+def process_classification_task(db_session: Session, url_record: URL, artifact: dict):
     try:
         content = fetch_and_parse_content(url_record.url)
+        if content.get("is_non_html"):
+            url_record.status = CrawlStatus.irrelevant
+            url_record.error_message = "Content-Type was not HTML"
+            return
         if content.get("is_csr"):
-            logger.warning(
-                f"⚠️ Detected CSR for {url_record.url}. Marking as irrelevant.")
             url_record.status = CrawlStatus.irrelevant
             url_record.rendering = RenderingType.CSR
             url_record.error_message = "Detected Client-Side Rendering"
-            db.commit()
             return
+
         url_record.rendering = RenderingType.SSR
-        df = pd.DataFrame([{**content, "url": url_record.url}])
+        df = pd.DataFrame([{**content, "url": content["final_url"]}])
         txt_feat = artifact['vectorizer'].transform(
             df["text_content"].fillna(""))
         num_feat_df = pd.concat([extract_url_features(df['url']), extract_structural_features(
             df['html_content']), extract_content_features(df['text_content'])], axis=1)
         num_feat = sp.csr_matrix(num_feat_df.to_numpy(dtype="float32"))
         features = sp.hstack([txt_feat, num_feat], format="csr")
-        is_personal_blog = (artifact['model'].predict(
-            features) > 0.5).astype(int)[0]
+        is_personal_blog = (artifact['model'].predict(features)[0] > 0.5)
+
         url_record.processed_at = datetime.now(timezone.utc)
         url_record.title = content.get('title')
         url_record.description = content.get('description')
+        url_record.content = content.get('text_content')  # <<< FIX IS HERE
+
         if is_personal_blog:
-            url_record.status = CrawlStatus.pending_crawl
-            url_record.content = content['text_content']
-            logger.info(
-                f"✅ Classified as Personal Blog. Queued for crawling: {url_record.url}")
+            _perform_crawl_logic(db_session, url_record, content)
+            url_record.status = CrawlStatus.completed
         else:
             url_record.status = CrawlStatus.irrelevant
-            logger.info(f"❌ Classified as Irrelevant: {url_record.url}")
+
     except Exception as e:
         logger.error(
             f"Failed to classify {url_record.url}: {e}", exc_info=False)
         url_record.status = CrawlStatus.failed
         url_record.error_message = str(e)
-    db.commit()
 
 
-def process_crawl_task(db, url_record: URL):
-    logger.info(f"[CRAWL] Starting: {url_record.url}")
-    log_extra = {"event": "crawl_task",
-                 "url_id": url_record.id, "url": url_record.url}
+def process_crawl_task(db_session: Session, url_record: URL):
     try:
         content = fetch_and_parse_content(url_record.url)
+        if content.get("is_non_html"):
+            url_record.status = CrawlStatus.completed
+            url_record.error_message = "Content-Type was not HTML"
+            return
         if content.get("is_csr"):
-            logger.warning(
-                f"⚠️ Detected CSR for {url_record.url}. Skipping crawl.")
             url_record.status = CrawlStatus.completed
             url_record.rendering = RenderingType.CSR
             url_record.error_message = "Detected CSR during crawl"
-            db.commit()
             return
 
-        url_record.rendering = RenderingType.SSR
-        url_record.title = content.get('title')
-        url_record.description = content.get('description')
-        url_record.content = content.get('text_content')
-
-        new_links = extract_links(content['html_content'], url_record.url)
-
-        if new_links:
-            # ... (fast-path logic for inserting into 'urls' table is the same) ...
-            links_by_netloc = defaultdict(list)
-            for link in new_links:
-                if nloc := urlparse(link).netloc:
-                    links_by_netloc[nloc].append(link)
-            existing_urls = {u.url for u in db.query(
-                URL.url).filter(URL.url.in_(new_links))}
-            personal_statuses = {CrawlStatus.pending_crawl,
-                                 CrawlStatus.crawling, CrawlStatus.completed}
-            domain_decisions_q = db.query(URL.netloc, URL.status).filter(URL.netloc.in_(links_by_netloc.keys(
-            )), URL.status.in_(personal_statuses | {CrawlStatus.irrelevant})).distinct(URL.netloc)
-            domain_decisions = {
-                res.netloc: res.status for res in domain_decisions_q}
-            to_insert_irrelevant, to_insert_pending_crawl, to_insert_pending_classification = [], [], []
-            for netloc, links in links_by_netloc.items():
-                for link in links:
-                    if link in existing_urls:
-                        continue
-                    if netloc == url_record.netloc:
-                        to_insert_pending_crawl.append(
-                            {"url": link, "netloc": netloc, "status": CrawlStatus.pending_crawl})
-                    elif netloc in domain_decisions:
-                        decision = domain_decisions[netloc]
-                        if decision == CrawlStatus.irrelevant:
-                            to_insert_irrelevant.append(
-                                {"url": link, "netloc": netloc, "status": CrawlStatus.irrelevant})
-                        elif decision in personal_statuses:
-                            to_insert_pending_crawl.append(
-                                {"url": link, "netloc": netloc, "status": CrawlStatus.pending_crawl})
-                    else:
-                        to_insert_pending_classification.append(
-                            {"url": link, "netloc": netloc, "status": CrawlStatus.pending_classification})
-
-            bulk_insert_with_status(db, to_insert_irrelevant)
-            bulk_insert_with_status(db, to_insert_pending_classification)
-            bulk_insert_with_status(db, to_insert_pending_crawl)
-            db.flush()  # Ensure the new URLs are available for querying IDs
-
-            # *** THE FIX IS HERE: Create the graph edges ***
-            all_inserted_links = [r['url'] for r in to_insert_irrelevant +
-                                  to_insert_pending_crawl + to_insert_pending_classification]
-            if all_inserted_links:
-                dest_ids_q = db.query(URL.id).filter(
-                    URL.url.in_(all_inserted_links))
-                dest_ids = [res.id for res in dest_ids_q]
-                edge_values = [{"source_url_id": url_record.id,
-                                "dest_url_id": dest_id} for dest_id in dest_ids]
-
-                if edge_values:
-                    edge_stmt = pg_insert(URLEdge).values(
-                        edge_values).on_conflict_do_nothing()
-                    db.execute(edge_stmt)
-                    log_extra['edges_created'] = len(edge_values)
-                    logger.debug(
-                        f"Created {len(edge_values)} edges in the link graph.", extra=log_extra)
-
-            num_added = len(all_inserted_links)
-            logger.info(
-                f"✅ Crawl complete for {url_record.url}. Added {num_added} new URLs.")
-        else:
-            logger.info(
-                f"✅ Crawl complete for {url_record.url}. Found 0 new links.")
+        _perform_crawl_logic(db_session, url_record, content)
 
         url_record.status = CrawlStatus.completed
         url_record.processed_at = datetime.now(timezone.utc)
+        url_record.title = content.get('title')
+        url_record.description = content.get('description')
+        url_record.content = content.get('text_content')  # <<< FIX IS HERE
+
     except Exception as e:
         logger.error(f"Failed to crawl {url_record.url}: {e}", exc_info=False)
         url_record.status = CrawlStatus.failed
         url_record.error_message = str(e)
 
-    db.commit()
+# --- Bulletproof Thread Wrapper (Unchanged) ---
+
+
+def run_task_in_thread(task_func, job_id: int, *args):
+    db_session = SessionLocal()
+    try:
+        job_to_process = db_session.query(URL).filter(URL.id == job_id).first()
+        if not job_to_process:
+            logger.warning(f"Job with ID {job_id} not found in thread.")
+            return
+
+        task_func(db_session, job_to_process, *args)
+
+        db_session.commit()
+    except Exception as e:
+        db_session.rollback()
+        logger.error(
+            f"Transaction failed for job ID {job_id}. Rolling back. Error: {e}", exc_info=False)
+    finally:
+        db_session.close()
+
+# --- Main Loop (Unchanged) ---
 
 
 def main():
-    # This main loop is correct and does not need to change.
     logger.info("--- Starting BlogSpy Worker ---")
     try:
         artifact = joblib.load(MODEL_PATH)
@@ -6213,32 +6183,53 @@ def main():
     except FileNotFoundError:
         logger.error(f"Model file not found at {MODEL_PATH}. Exiting.")
         sys.exit(1)
+
+    cpu_cores = os.cpu_count() or 1
+    max_workers = min(BATCH_SIZE * 2, cpu_cores * 5)
+    logger.info(
+        f"Initialized with BATCH_SIZE={BATCH_SIZE} and max_workers={max_workers}.")
+
     while True:
         logger.debug("Starting new worker cycle", extra={
                      "event": "cycle_start", "performance": get_performance_metrics()})
         db = SessionLocal()
+        job_processed_in_cycle = False
         try:
-            job_processed = False
             for job_type, status_from, status_to, process_func, args in [
                 ("crawling", CrawlStatus.pending_crawl,
                  CrawlStatus.crawling, process_crawl_task, []),
                 ("classification", CrawlStatus.pending_classification,
                  CrawlStatus.classifying, process_classification_task, [artifact])
             ]:
-                jobs = db.query(URL).filter(URL.status == status_from).with_for_update(
-                    skip_locked=True).limit(BATCH_SIZE).all()
-                if jobs:
-                    job_processed = True
-                    logger.info(f"Fetched {len(jobs)} {job_type} jobs.")
-                    for job in jobs:
-                        job.status = status_to
+                job_ids_query = db.query(URL.id).filter(
+                    URL.status == status_from).with_for_update(skip_locked=True).limit(BATCH_SIZE)
+                job_ids = [id_tuple[0] for id_tuple in job_ids_query.all()]
+                if job_ids:
+                    job_processed_in_cycle = True
+                    db.query(URL).filter(URL.id.in_(job_ids)).update(
+                        {'status': status_to}, synchronize_session=False)
                     db.commit()
-                    for job in jobs:
-                        process_func(db, job, *args)
-                    break
-            if not job_processed:
+                    logger.info(
+                        f"Locked and dispatched {len(job_ids)} {job_type} jobs.")
+                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                        future_to_job_id = {executor.submit(
+                            run_task_in_thread, process_func, job_id, *args): job_id for job_id in job_ids}
+                        jobs_done_in_batch = 0
+                        for future in as_completed(future_to_job_id):
+                            jobs_done_in_batch += 1
+                            try:
+                                future.result()
+                                if jobs_done_in_batch % 20 == 0:
+                                    logger.info(
+                                        f"Batch progress: {jobs_done_in_batch}/{len(job_ids)} {job_type} jobs finished.")
+                            except Exception:
+                                pass
+                    logger.info(
+                        f"Batch of {len(job_ids)} {job_type} jobs complete.")
+
+            if not job_processed_in_cycle:
                 logger.info(
-                    f"No pending jobs. Sleeping for {SLEEP_INTERVAL} seconds.")
+                    f"No pending jobs in this cycle. Sleeping for {SLEEP_INTERVAL} seconds.")
                 time.sleep(SLEEP_INTERVAL)
         except Exception as e:
             logger.error(

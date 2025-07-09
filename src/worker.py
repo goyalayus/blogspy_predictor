@@ -1,4 +1,4 @@
-# src/worker.py (Final Bulletproof Version)
+# src/worker.py
 
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -16,6 +16,7 @@ import scipy.sparse as sp
 import psutil
 import time
 import os
+import threading
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
 from collections import defaultdict
@@ -26,7 +27,7 @@ project_root = pathlib.Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
 MODEL_PATH = MODELS_DIR / 'lgbm_final_model.joblib'
-BATCH_SIZE = 100
+BATCH_SIZE = 500
 SLEEP_INTERVAL = 5
 
 IGNORE_EXTENSIONS = (
@@ -36,6 +37,14 @@ IGNORE_EXTENSIONS = (
 )
 
 logger = setup_logging('worker')
+
+thread_local_session = threading.local()
+
+
+def get_session():
+    if not hasattr(thread_local_session, "session"):
+        thread_local_session.session = requests.Session()
+    return thread_local_session.session
 
 # --- Helper Functions (Unchanged) ---
 
@@ -57,7 +66,8 @@ def check_for_csr(soup: BeautifulSoup) -> bool:
 
 def fetch_and_parse_content(url: str) -> dict:
     warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
-    response = requests.get(url, timeout=(
+    session = get_session()
+    response = session.get(url, timeout=(
         2, 4), headers=REQUEST_HEADERS, allow_redirects=True)
     response.raise_for_status()
     content_type = response.headers.get('content-type', '').lower()
@@ -106,12 +116,68 @@ def bulk_insert_with_status(db: Session, records: list[dict]):
         records).on_conflict_do_nothing(index_elements=['url'])
     db.execute(stmt)
 
-# --- Task Processing Functions (NO LONGER COMMIT) ---
+# --- NEW HELPER FOR CRAWL LOGIC ---
 
 
-def process_classification_task(url_record: URL, artifact: dict):
-    # This function now only sets the status on the object.
-    # The commit is handled by the run_task_in_thread wrapper.
+def _perform_crawl_logic(db_session: Session, url_record: URL, content: dict):
+    new_links = extract_links(content['html_content'], content["final_url"])
+    if not new_links:
+        return
+    links_by_netloc = defaultdict(list)
+    for link in new_links:
+        if nloc := urlparse(link).netloc:
+            links_by_netloc[nloc].append(link)
+    existing_urls_q = db_session.query(URL.url).filter(URL.url.in_(new_links))
+    existing_urls = {res.url for res in existing_urls_q}
+    personal_statuses = {CrawlStatus.pending_crawl,
+                         CrawlStatus.crawling, CrawlStatus.completed}
+    domain_decisions_q = db_session.query(URL.netloc, URL.status).filter(
+        URL.netloc.in_(links_by_netloc.keys()),
+        URL.status.in_(personal_statuses | {CrawlStatus.irrelevant})
+    ).distinct(URL.netloc)
+    domain_decisions = {res.netloc: res.status for res in domain_decisions_q}
+    to_insert_irrelevant, to_insert_pending_crawl, to_insert_pending_classification = [], [], []
+    for netloc, links in links_by_netloc.items():
+        for link in links:
+            if link in existing_urls:
+                continue
+            if netloc == urlparse(url_record.url).netloc:
+                to_insert_pending_crawl.append(
+                    {"url": link, "netloc": netloc, "status": CrawlStatus.pending_crawl})
+            elif netloc in domain_decisions:
+                decision = domain_decisions[netloc]
+                if decision == CrawlStatus.irrelevant:
+                    to_insert_irrelevant.append(
+                        {"url": link, "netloc": netloc, "status": CrawlStatus.irrelevant})
+                elif decision in personal_statuses:
+                    to_insert_pending_crawl.append(
+                        {"url": link, "netloc": netloc, "status": CrawlStatus.pending_crawl})
+            else:
+                to_insert_pending_classification.append(
+                    {"url": link, "netloc": netloc, "status": CrawlStatus.pending_classification})
+    bulk_insert_with_status(db_session, to_insert_irrelevant)
+    bulk_insert_with_status(db_session, to_insert_pending_classification)
+    bulk_insert_with_status(db_session, to_insert_pending_crawl)
+    db_session.flush()
+    all_inserted_links = [r['url'] for r in to_insert_irrelevant +
+                          to_insert_pending_crawl + to_insert_pending_classification]
+    if all_inserted_links:
+        dest_ids_q = db_session.query(URL.id).filter(
+            URL.url.in_(all_inserted_links))
+        dest_ids = [res.id for res in dest_ids_q]
+        edge_values = [{"source_url_id": url_record.id,
+                        "dest_url_id": dest_id} for dest_id in dest_ids]
+        if edge_values:
+            edge_stmt = pg_insert(URLEdge).values(
+                edge_values).on_conflict_do_nothing()
+            db_session.execute(edge_stmt)
+    logger.info(
+        f"✅ (From Classify) Crawl logic for {url_record.url} added {len(all_inserted_links)} new URLs.")
+
+# --- Task Processing Functions (FIXED) ---
+
+
+def process_classification_task(db_session: Session, url_record: URL, artifact: dict):
     try:
         content = fetch_and_parse_content(url_record.url)
         if content.get("is_non_html"):
@@ -123,6 +189,7 @@ def process_classification_task(url_record: URL, artifact: dict):
             url_record.rendering = RenderingType.CSR
             url_record.error_message = "Detected Client-Side Rendering"
             return
+
         url_record.rendering = RenderingType.SSR
         df = pd.DataFrame([{**content, "url": content["final_url"]}])
         txt_feat = artifact['vectorizer'].transform(
@@ -132,10 +199,18 @@ def process_classification_task(url_record: URL, artifact: dict):
         num_feat = sp.csr_matrix(num_feat_df.to_numpy(dtype="float32"))
         features = sp.hstack([txt_feat, num_feat], format="csr")
         is_personal_blog = (artifact['model'].predict(features)[0] > 0.5)
+
         url_record.processed_at = datetime.now(timezone.utc)
         url_record.title = content.get('title')
         url_record.description = content.get('description')
-        url_record.status = CrawlStatus.pending_crawl if is_personal_blog else CrawlStatus.irrelevant
+        url_record.content = content.get('text_content')  # <<< FIX IS HERE
+
+        if is_personal_blog:
+            _perform_crawl_logic(db_session, url_record, content)
+            url_record.status = CrawlStatus.completed
+        else:
+            url_record.status = CrawlStatus.irrelevant
+
     except Exception as e:
         logger.error(
             f"Failed to classify {url_record.url}: {e}", exc_info=False)
@@ -144,8 +219,6 @@ def process_classification_task(url_record: URL, artifact: dict):
 
 
 def process_crawl_task(db_session: Session, url_record: URL):
-    # This function now only sets the status on the object.
-    # It still needs the db_session to query for existing links.
     try:
         content = fetch_and_parse_content(url_record.url)
         if content.get("is_non_html"):
@@ -157,69 +230,21 @@ def process_crawl_task(db_session: Session, url_record: URL):
             url_record.rendering = RenderingType.CSR
             url_record.error_message = "Detected CSR during crawl"
             return
-        new_links = extract_links(
-            content['html_content'], content["final_url"])
-        if new_links:
-            # This part still needs the session to perform its logic
-            links_by_netloc = defaultdict(list)
-            for link in new_links:
-                if nloc := urlparse(link).netloc:
-                    links_by_netloc[nloc].append(link)
-            existing_urls_q = db_session.query(
-                URL.url).filter(URL.url.in_(new_links))
-            existing_urls = {res.url for res in existing_urls_q}
-            personal_statuses = {CrawlStatus.pending_crawl,
-                                 CrawlStatus.crawling, CrawlStatus.completed}
-            domain_decisions_q = db_session.query(URL.netloc, URL.status).filter(URL.netloc.in_(
-                links_by_netloc.keys()), URL.status.in_(personal_statuses | {CrawlStatus.irrelevant})).distinct(URL.netloc)
-            domain_decisions = {
-                res.netloc: res.status for res in domain_decisions_q}
-            to_insert_irrelevant, to_insert_pending_crawl, to_insert_pending_classification = [], [], []
-            for netloc, links in links_by_netloc.items():
-                for link in links:
-                    if link in existing_urls:
-                        continue
-                    if netloc == url_record.netloc:
-                        to_insert_pending_crawl.append(
-                            {"url": link, "netloc": netloc, "status": CrawlStatus.pending_crawl})
-                    elif netloc in domain_decisions:
-                        decision = domain_decisions[netloc]
-                        if decision == CrawlStatus.irrelevant:
-                            to_insert_irrelevant.append(
-                                {"url": link, "netloc": netloc, "status": CrawlStatus.irrelevant})
-                        elif decision in personal_statuses:
-                            to_insert_pending_crawl.append(
-                                {"url": link, "netloc": netloc, "status": CrawlStatus.pending_crawl})
-                    else:
-                        to_insert_pending_classification.append(
-                            {"url": link, "netloc": netloc, "status": CrawlStatus.pending_classification})
-            bulk_insert_with_status(db_session, to_insert_irrelevant)
-            bulk_insert_with_status(
-                db_session, to_insert_pending_classification)
-            bulk_insert_with_status(db_session, to_insert_pending_crawl)
-            db_session.flush()
-            all_inserted_links = [r['url'] for r in to_insert_irrelevant +
-                                  to_insert_pending_crawl + to_insert_pending_classification]
-            if all_inserted_links:
-                dest_ids_q = db_session.query(URL.id).filter(
-                    URL.url.in_(all_inserted_links))
-                dest_ids = [res.id for res in dest_ids_q]
-                edge_values = [{"source_url_id": url_record.id,
-                                "dest_url_id": dest_id} for dest_id in dest_ids]
-                if edge_values:
-                    edge_stmt = pg_insert(URLEdge).values(
-                        edge_values).on_conflict_do_nothing()
-                    db_session.execute(edge_stmt)
+
+        _perform_crawl_logic(db_session, url_record, content)
+
         url_record.status = CrawlStatus.completed
         url_record.processed_at = datetime.now(timezone.utc)
         url_record.title = content.get('title')
         url_record.description = content.get('description')
+        url_record.content = content.get('text_content')  # <<< FIX IS HERE
+
     except Exception as e:
         logger.error(f"Failed to crawl {url_record.url}: {e}", exc_info=False)
         url_record.status = CrawlStatus.failed
         url_record.error_message = str(e)
 
-# --- Bulletproof Thread Wrapper ---
+# --- Bulletproof Thread Wrapper (Unchanged) ---
 
 
 def run_task_in_thread(task_func, job_id: int, *args):
@@ -227,29 +252,20 @@ def run_task_in_thread(task_func, job_id: int, *args):
     try:
         job_to_process = db_session.query(URL).filter(URL.id == job_id).first()
         if not job_to_process:
-            logger.warning(
-                f"Job with ID {job_id} not found in thread, might have been processed or deleted.")
+            logger.warning(f"Job with ID {job_id} not found in thread.")
             return
 
-        # The actual work happens here. The task function modifies the job_to_process object.
-        # Note: process_crawl_task needs the session for its sub-queries.
-        if task_func == process_crawl_task:
-            task_func(db_session, job_to_process, *args)
-        else:
-            task_func(job_to_process, *args)
+        task_func(db_session, job_to_process, *args)
 
-        # If the function completes without raising an exception, commit the changes.
         db_session.commit()
-
     except Exception as e:
-        # If ANY exception occurs (in the task or during the commit), rollback everything.
         db_session.rollback()
-        # Log the top-level error that caused the entire transaction to fail.
         logger.error(
-            f"Transaction failed for job ID {job_id}. Rolling back. Error: {e}", exc_info=True)
+            f"Transaction failed for job ID {job_id}. Rolling back. Error: {e}", exc_info=False)
     finally:
-        # Always close the session to return the connection to the pool.
         db_session.close()
+
+# --- Main Loop (Unchanged) ---
 
 
 def main():
@@ -262,7 +278,7 @@ def main():
         sys.exit(1)
 
     cpu_cores = os.cpu_count() or 1
-    max_workers = min(BATCH_SIZE * 2, cpu_cores * 5)
+    max_workers = min(BATCH_SIZE * 2, cpu_cores * 10)
     logger.info(
         f"Initialized with BATCH_SIZE={BATCH_SIZE} and max_workers={max_workers}.")
 
@@ -296,12 +312,10 @@ def main():
                             jobs_done_in_batch += 1
                             try:
                                 future.result()
-                                if jobs_done_in_batch % 10 == 0:
+                                if jobs_done_in_batch % 20 == 0:
                                     logger.info(
                                         f"Batch progress: {jobs_done_in_batch}/{len(job_ids)} {job_type} jobs finished.")
                             except Exception:
-                                # Error is already logged in detail by run_task_in_thread.
-                                # We just need to catch it here so as_completed doesn't stop.
                                 pass
                     logger.info(
                         f"Batch of {len(job_ids)} {job_type} jobs complete.")
