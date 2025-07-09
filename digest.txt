@@ -3,9 +3,12 @@ Directory structure:
     ├── README.md
     ├── blogspy_predictor.spec
     ├── corporate.csv
+    ├── fix_csv.py
     ├── requirements.txt
     ├── searchmysite_urls.csv
     ├── seed_database.py
+    ├── logs/
+    │   └── worker_performance.jsonl
     ├── outputs/
     │   └── models/
     │       └── lgbm_final_model.joblib
@@ -233,1680 +236,1714 @@ exe = EXE(
 ================================================
 File: corporate.csv
 ================================================
-123rf.com
-1mg.com
-20minutes.fr
-20minutos.es
-2carpros.com
-365scores.com
-500px.com
-9to5mac.com
-a-z-animals.com
-a16z.com
-aa.com
-aaa.com
-aajtak.in
-aarp.org
-abc.net.au
-abeautifulmess.com
-abplive.com
-abril.com.br
-academia.edu
-academicearth.org
-accor.com
-accuweather.com
-acefitness.org
-acehardware.com
-acs.org
-action.com
-actu.fr
-acupuncturetoday.com
-adage.com
-adidas.com
-adobe.com
-adt.com
-adventure-journal.com
-adventure.com
-advpulse.com
-adweek.com
-aeon.co
-af.mil
-afar.com
-afp.com
-ageuk.org.uk
-agingcare.com
-agoda.com
-agri-pulse.com
-airbnb.com
-airlineratings.com
-aiscore.com
-akc.org
-alamy.com
-alberta.ca
-alibaba.com
-aliexpress.com
-alistapart.com
-aljazeera.com
-allegro.pl
-allevents.in
-allmusic.com
-allocine.fr
-allrecipes.com
-allsides.com
-alltrails.com
-allure.com
-almaany.com
-almanac.com
-alz.org
-amarujala.com
-amazon.com
-amcollege.edu
-ameblo.jp
-americanexpress.com
-americangeo.org
-americantheatre.org
-aminoapps.com
-amnh.org
-analyticsvidhya.com
-anandtech.com
-ancient-origins.net
-ancient.eu
-android.com
-androidpolice.com
-angi.com
-animationmagazine.net
-answers.com
-antaranews.com
-anthropocenemagazine.org
-anthropologie.com
-aol.com
-apa.org
-apartments.com
-apartmenttherapy.com
-apkpure.com
-apnews.com
-apple.com
-appliance-blog.com
-aps.org
-aptoide.com
-arcgis.com
-archaeology.org
-archdaily.com
-architectsjournal.co.uk
-architecturaldigest.com
-architizer.com
-archive.org
-archlinux.org
-archpaper.com
-ardmediathek.de
-argentina.gob.ar
-argos.co.uk
-army.mil
-arstechnica.com
-artforum.com
-arthritis.org
-artic.edu
-artnet.com
-artofmanliness.com
-artsy.net
-as.com
-asahi.com
-asana.com
-asanet.org
-asda.com
-asecurelife.com
-asos.com
-asus.com
-athleticsweekly.com
-athlonsports.com
-atlasobscura.com
-atlassian.com
-attomdata.com
-audubon.org
-autoblog.com
-autoevolution.com
-autosport.com
-autoweek.com
-autozone.com
-avclub.com
-awardwallet.com
-axios.com
-ayurveda.com
-azlyrics.com
-bab.la
-babycenter.com
-backlinko.com
-backpacker.com
-baidu.com
-bain.com
-bajajfinserv.in
-bandcamp.com
-bankofamerica.com
-bankrate.com
-barnesandnoble.com
-barrons.com
-baseball-reference.com
-basketball-reference.com
-bbb.org
-bbc.com
-bbcgoodfood.com
-beebom.com
-beeradvocate.com
-berkeley.edu
-bestbuy.com
-betterhealth.vic.gov.au
-bfmtv.com
-bhaskar.com
-bhg.com
-biblegateway.com
-biblestudytools.com
-bicycling.com
-bigcommerce.com
-biggerpockets.com
-bigthink.com
-bigw.com.au
-bikeexif.com
-bild.de
-bilibili.tv
-billboard.com
-biologynews.net
-biomedcentral.com
-bizjournals.com
-bleacherreport.com
-bleepingcomputer.com
-blibli.com
-blogspot.com
-bloomberg.com
-bls.gov
-bmj.com
-bobvila.com
-bodybuilding.com
-bogleheads.org
-bol.com
-bonappetit.com
-booking.com
-bookmyshow.com
-bookriot.com
-boomplay.com
-booooooom.com
-boots.com
-botanical.com
-brainblogger.com
-brainly.com
-brainpop.com
-breakingmuscle.com
-breakingtravelnews.com
-brilliant.org
-brinkshome.com
-brit.co
-britannica.com
-britishcouncil.org
-britishmuseum.org
-broadwayworld.com
-brookings.edu
-budgetyourtrip.com
-bunnings.com.au
-business-standard.com
-businessinsider.com
-businessoffashion.com
-businesstravelnews.com
-businesswire.com
-buzzfeed.com
-byjus.com
-byrdie.com
-ca.gov
-calculator.net
-calm.com
-cambridge.org
-canada.ca
-canadiantire.ca
-cancer.gov
-canva.com
-capitalone.com
-caranddriver.com
-carbibles.com
-carcare.org
-carfax.com
-cargurus.com
-carrefour.fr
-cars.com
-cartoonbrew.com
-carwale.com
-cato.org
-catster.com
-cbc.ca
-cbr.com
-cbsnews.com
-cbssports.com
-cctvplus.com
-cdc.gov
-cdiscount.com
-cell.com
-cern.ch
-chalkbeat.org
-channel4.com
-chargedevs.com
-checkyourfact.com
-chegg.com
-chewy.com
-childmind.org
-chip.de
-chopra.com
-chosun.com
-churchofjesuschrist.org
-cinemablend.com
-city-data.com
-cjr.org
-ck12.org
-clarin.com
-cleaningtheglass.com
-cleantechnica.com
-cleartax.in
-clevelandclinic.org
-climbing.com
-close.com
-cloudflare.com
-cnbc.com
-cnet.com
-cnn.com
-cnnbrasil.com.br
-cntraveler.com
-code.org
-codecademy.com
-coindesk.com
-cointelegraph.com
-collider.com
-collinsdictionary.com
-colorado.gov
-columbia.edu
-com.be
-comicbook.com
-comicsbeat.com
-commentary.org
-commonsense.org
-commonsensemedia.org
-computerworld.com
-consequence.net
-conservation.org
-consumerreports.org
-containerstore.com
-contentmarketinginstitute.com
-cookinglight.com
-cookpad.com
-cornell.edu
-corriere.it
-cosmopolitan.com
-costco.com
-couchsurfing.com
-countryliving.com
-coursera.org
-craftbeer.com
-craigslist.org
-craiyon.com
-crash.net
-crazygames.com
-creditkarma.com
-crimereads.com
-crohnscolitisfoundation.org
-crosswordsolver.com
-crowdfundinsider.com
-cruisecritic.com
-crunchbase.com
-crunchyroll.com
-csoonline.com
-css-tricks.com
-ct.gov
-ctbuh.org
-ctvnews.ca
-cuemath.com
-cultureamp.com
-curbed.com
-curiositystream.com
-currys.co.uk
-cvs.com
-cyberscoop.com
-cycleworld.com
-cyclingnews.com
-cylex-uk.co.uk
-dailymail.co.uk
-dailymotion.com
-dancemagazine.com
-daringfireball.net
-darkreading.com
-data.gouv.fr
-datacamp.com
-daum.net
-dcinside.com
-deadline.com
-deadspin.com
-debian.org
-decanter.com
-decider.com
-decrypt.co
-deepl.com
-deepmind.com
-deezer.com
-definitions.net
-delish.com
-dell.com
-delta.com
-departures.com
-depositphotos.com
-design-milk.com
-designboom.com
-destructoid.com
-detik.com
-dev.to
-deviantart.com
-dexerto.com
-dezeen.com
-dhgate.com
-diabetes.org
-dickssportinggoods.com
-dictionary.com
-digital-photography-school.com
-digitalcommerce360.com
-digitalocean.com
-digitalspy.com
-digitaltrends.com
-dillards.com
-discogs.com
-discord.com
-discovermagazine.com
-disneyplus.com
-distiller.com
-diy.com
-diynetwork.com
-dn.se
-dnb.com
-docker.com
-docomo.ne.jp
-dogster.com
-doityourself.com
-dollarflightclub.com
-domestika.org
-dominomag.com
-doodlecraftblog.com
-doordash.com
-dot.gov
-dotesports.com
-doubtnut.com
-doyogawithme.com
-dpa.com
-dpreview.com
-draxe.com
-dreamstime.com
-drift.com
-drugs.com
-drweil.com
-dunelm.com
-duolingo.com
-dw.com
-dwell.com
-dzen.ru
-dzone.com
-ea.com
-easyjet.com
-eater.com
-eatingwell.com
-eatright.org
-ebay.com
-ebsco.com
-ecommercetimes.com
-econjwatch.org
-economictimes.com
-economist.com
-edmunds.com
-education.com
-educative.io
-edutopia.org
-edx.org
-eetimes.com
-efe.com
-egghead.io
-eksisozluk.com
-elcomercio.pe
-elconfidencial.com
-elcorteingles.es
-electrek.co
-electricliterature.com
-elespanol.com
-elle.com
-elmundo.es
-elpais.com
-eltiempo.com
-encyclopedia.com
-engadget.com
-english-heritage.org.uk
-entrepreneur.com
-eonline.com
-epa.gov
-epicentrk.ua
-epicgames.com
-epicurious.com
-ericthecarguy.com
-esa.int
-escapistmagazine.com
-espn.com
-espncricinfo.com
-esportsearnings.com
-esportsinsider.com
-esportsobserver.com
-esquire.com
-esri.com
-estadao.com.br
-etailinsights.com
-etsy.com
-etymonline.com
-euobserver.com
-eurogamer.net
-euronews.com
-europa.eu
-ev-database.org
-evannex.com
-eventbrite.com
-evernote.com
-everydayhealth.com
-ew.com
-examine.com
-expedia.com
-explainthatstuff.com
-explorersweb.com
-express.co.uk
-facebook.com
-facinghistory.org
-factcheck.org
-familyhandyman.com
-famousbirthdays.com
-fandango.com
-fandom.com
-fangraphs.com
-farfetch.com
-fastcompany.com
-fatherly.com
-favecrafts.com
-faz.net
-fbref.com
-fc2.com
-fda.gov
-featureshoot.com
-fedex.com
-fedoramagazine.org
-fextralife.com
-filmaffinity.com
-filmweb.pl
-financialexpress.com
-finegardening.com
-finewoodworking.com
-finextra.com
-finn.no
-fintechfutures.com
-firstcry.com
-firstround.com
-fiveable.me
-fivethirtyeight.com
-flashscore.com
-flickr.com
-flightaware.com
-flightradar24.com
-flipkart.com
-flyertalk.com
-flylady.net
-fnac.com
-fnal.gov
-focus.de
-fodors.com
-food.com
-food52.com
-foodandwine.com
-foodnetwork.com
-foodrevolution.org
-footballoutsiders.com
-forbes.com
-ford.com
-foreignaffairs.com
-foreignpolicy.com
-formula1.com
-forrester.com
-fortune.com
-fourfourtwo.com
-foxnews.com
-foxsports.com
-france24.com
-francebleu.fr
-franceinfo.fr
-free.fr
-freecodecamp.org
-freepik.com
-freightwaves.com
-frieze.com
-frommers.com
-frontendmasters.com
-frontiersin.org
-fs.blog
-fstoppers.com
-ft.com
-fullfact.org
-fullycharged.show
-futurelearn.com
-gadventures.com
-gaia.com
-game8.co
-gamedeveloper.com
-gamerant.com
-gamereactor.eu
-gamesindustry.biz
-gamespot.com
-gamesradar.com
-gardendesign.com
-gardenersworld.com
-gardenista.com
-gartner.com
-gearjunkie.com
-gearpatrol.com
-geeksforgeeks.org
-gematsu.com
-genius.com
-geographical.co.uk
-georgia.gov
-getepic.com
-getty.edu
-gettyimages.com
-getyourguide.com
-giantbomb.com
-github.com
-gitlab.com
-gizmodo.com
-glamour.com
-glassdoor.com
-globaltrademag.com
-globenewswire.com
-globest.com
-globo.com
-glosbe.com
-go.com
-goal.com
-gocomics.com
-goibibo.com
-golf.com
-gong.io
-goo.ne.jp
-goodhousekeeping.com
-goodreads.com
-goodrx.com
-goodtherapy.org
-google.com
-googleblog.com
-goop.com
-gosugamers.net
-gouv.qc.ca
-gov.bc.ca
-gq.com
-grammarly.com
-greatist.com
-greencarreports.com
-groupon.com
-grubhub.com
-guernicamag.com
-gutefrage.net
-gutenberg.org
-hackernoon.com
-handmadecharlotte.com
-harborfreight.com
-harpersbazaar.com
-harvard.edu
-hbr.org
-headforpoints.com
-headspace.com
-health.com
-healthdirect.gov.au
-healthgrades.com
-healthline.com
-healthychildren.org
-heart.org
-heb.com
-hellomagazine.com
-helpscout.com
-heritagedaily.com
-herzindagi.com
-hgtv.com
-highlandwoodworking.com
-highsnobiety.com
-hilton.com
-hinative.com
-hindustantimes.com
-hinkhoj.com
-historic-uk.com
-history.com
-historyextra.com
-historynet.com
-historytoday.com
-hltv.org
-hm.com
-hobbylobby.com
-hockey-reference.com
-hockeyviz.com
-hola.com
-holidaycheck.de
-hollywoodreporter.com
-home-storage-solutions-101.com
-homedepot.com
-homes.com
-homesandgardens.com
-hometalk.com
-hopkinsmedicine.org
-hopper.com
-hortmag.com
-hospitalitynet.org
-hostelworld.com
-hotels.com
-hotpepper.jp
-housebeautiful.com
-housingwire.com
-houzz.com
-howstuffworks.com
-howtogeek.com
-hp.com
-hse.ie
-hubpages.com
-hubspot.com
-huffpost.com
-hulu.com
-hunker.com
-hyatt.com
-hypebeast.com
-hyperallergic.com
-ias.edu
-ibm.com
-idealo.de
-idntimes.com
-ieee.org
-ifixit.com
-iflscience.com
-ign.com
-iheart.com
-iheartorganizing.com
-ihg.com
-ikea.com
-illinois.gov
-imbibemagazine.com
-imdb.com
-imf.org
-imgur.com
-in.gov
-inc.com
-inchcalculator.com
-indeed.com
-independent.co.uk
-independenttraveler.com
-india.com
-indiamart.com
-indianexpress.com
-indiatimes.com
-indiatoday.in
-indiewire.com
-inews.co.uk
-infobae.com
-infoq.com
-infoworld.com
-ingles.com
-inman.com
-insideclimatenews.org
-insideevs.com
-insidehook.com
-insighttimer.com
-instacart.com
-instagram.com
-instructables.com
-instyle.com
-intercom.com
-intrepidtravel.com
-invenglobal.com
-investing.com
-investopedia.com
-irishtimes.com
-ironandair.com
-irs.gov
-issuu.com
-istockphoto.com
-itsfoss.com
-itsnicethat.com
-ixl.com
-jagran.com
-jagranjosh.com
-jalan.net
-jalopnik.com
-japan-guide.com
-japantimes.co.jp
-jawapos.com
-jazztimes.com
-jbhifi.com.au
-jcpenney.com
-jetsetter.com
-jiji.com
-jiosaavn.com
-johnlewis.com
-jooble.org
-journaldesfemmes.fr
-jstor.org
-justanswer.com
-justdial.com
-justia.com
-justice.gov
-justwatch.com
-juxtapoz.com
-jw.org
-kaggle.com
-kakaku.com
-kayak.com
-kbb.com
-kdnuggets.com
-kenpom.com
-khanacademy.org
-kicker.de
-kiddle.co
-kidshealth.org
-kinopoisk.ru
-kiplinger.com
-kirkusreviews.com
-kiwicollection.com
-klarna.com
-kleinanzeigen.de
-klook.com
-kmart.com.au
-kohls.com
-kompas.com
-koreaherald.com
-kotaku.com
-krebsonsecurity.com
-kroger.com
-kumparan.com
-lanacion.com.ar
-langeek.co
-larazon.es
-lareviewofbooks.org
-larousse.fr
-last.fm
-lastminute.com
-latimes.com
-lattice.com
-lavanguardia.com
-lazada.co.id
-ldoceonline.com
-leboncoin.fr
-leevalley.com
-lefigaro.fr
-legacy.com
-lego.com
-lemon8-app.com
-lemonde.fr
-lenovo.com
-lensculture.com
-leo.org
-leparisien.fr
-lequipe.fr
-lerobert.com
-letras.com
-letterboxd.com
-lever.co
-leverageedu.com
-lg.com
-libguides.com
-libretexts.org
-lifehacker.com
-lifewire.com
-line.me
-linguee.com
-linkedin.com
-linternaute.fr
-linux.com
-lionsroar.com
-liputan6.com
-liquipedia.net
-lithub.com
-livehindustan.com
-livejournal.com
-livemint.com
-livescience.com
-loc.gov
-lonelyplanet.com
-longreads.com
-lostartpress.com
-louisvuitton.com
-louvre.fr
-loveandlemons.com
-lovecrafts.com
-lowes.com
-loyaltylobby.com
-lrb.co.uk
-lumenlearning.com
-lung.org
-luxedigital.com
-luxurytravelmagazine.com
-lwn.net
-lww.com
-lyricstranslate.com
-lyst.com
-macys.com
-made-in-china.com
-magazineluiza.com.br
-magnumphotos.com
-mail.ru
-makemytrip.com
-makeuseof.com
-makezine.com
-manta.com
-mapbox.com
-mapcarta.com
-mappy.com
-mapquest.com
-marca.com
-marketingprofs.com
-marketscreener.com
-marketwatch.com
-marksandspencer.com
-marriott.com
-marthastewart.com
-maryland.gov
-mashable.com
-mass.gov
-massivelyop.com
-masterclass.com
-matadornetwork.com
-max.com
-mayoclinic.org
-mcdonalds.com
-mckinsey.com
-mcmasteroptimalaging.org
-mdpi.com
-mediabiasfactcheck.com
-medicalnewstoday.com
-medicinenet.com
-medium.com
-medlineplus.gov
-medscape.com
-meesho.com
-menards.com
-menshealth.com
-mensjournal.com
-mentalfloss.com
-menupix.com
-mercadolibre.com.mx
-mercadolivre.com.br
-mercari.com
-merkur.de
-merriam-webster.com
-merrymaids.com
-metacritic.com
-metmuseum.org
-metoffice.gov.uk
-metro.co.uk
-mhanational.org
-michaeljfox.org
-michaels.com
-michelin.com
-michigan.gov
-microsoft.com
-militarytimes.com
-mindbodygreen.com
-mindful.org
-mirror.co.uk
-mit.edu
-mk.co.kr
-mlb.com
-mlive.com
-mo.gov
-moddb.com
-modernretail.co
-moma.org
-monday.com
-moneycontrol.com
-moneysavingexpert.com
-mongodb.com
-moovitapp.com
-morningstar.com
-motogp.com
-motorcycle.com
-motorcyclenews.com
-motorsport.com
-motortrend.com
-mountsinai.org
-movieweb.com
-movoto.com
-moz.com
-mozilla.org
-msdmanuals.com
-msn.com
-msu.edu
-mtsobek.com
-mubi.com
-muchbetteradventures.com
-mumsnet.com
-mundodeportivo.com
-muscleandfitness.com
-musixmatch.com
-my-best.com
-mydomaine.com
-myer.com.au
-myfitnesspal.com
-mynavi.jp
-myntra.com
-nami.org
-namibian.com.na
-namu.wiki
-napaonline.com
-nasa.gov
-nascar.com
-nasdaq.com
-nate.com
-natgeomaps.com
-nationalarchives.gov.uk
-nationalgeographic.com
-nationalreview.com
-nature.com
-naver.com
-navitime.co.jp
-nba.com
-nbcnews.com
-nbcsports.com
-nber.org
-ncert.nic.in
-ncsu.edu
-ndr.de
-ndtv.com
-neilpatel.com
-nerdwallet.com
-netflix.com
-netlify.com
-newcriterion.com
-news-medical.net
-news.com.au
-news18.com
-newsbreak.com
-newscientist.com
-newsweek.com
-newyorker.com
-next.co.uk
-nextavenue.org
-nextdoor.com
-nexusmods.com
-nfl.com
-nhk.or.jp
-nhl.com
-nhsinform.scot
-niemanlab.org
-nih.gov
-nike.com
-nikkei.com
-nintendo.com
-nintendolife.com
-nj.gov
-nme.com
-noaa.gov
-noclip.video
-noon.com
-nordstrom.com
-note.com
-npr.org
-nps.gov
-nrc.nl
-nrf.com
-nsw.gov.au
-nutritionfacts.org
-nvidia.com
-ny.gov
-nybooks.com
-nyc.gov
-nymag.com
-nypost.com
-nytimes.com
-nzherald.co.nz
-octanner.com
-oed.com
-ohio.gov
-okdiario.com
-olx.ua
-olympics.com
-omgubuntu.co.uk
-omnicalculator.com
-onefootball.com
-onelook.com
-onemileatatime.com
-ontario.ca
-openai.com
-openculture.com
-opensource.com
-openstreetmap.org
-opentable.com
-operanews.com
-optasports.com
-oracle.com
-orbitz.com
-ordnancesurvey.co.uk
-oregon.gov
-oreillyauto.com
-organized-home.com
-osu.edu
-otto.de
-ouest-france.fr
-oup.com
-outdoorphotographer.com
-outdoorproject.com
-outreach.io
-outsideonline.com
-ox.ac.uk
-oxfordlearnersdictionaries.com
-oxfordreference.com
-ozon.ru
-pa.gov
-pagesjaunes.fr
-pantip.com
-pappers.fr
-parade.com
-parents.com
-patagonia.com
-patch.com
-patient.info
-paulsellers.com
-paxex.aero
-pbs.org
-pbslearningmedia.org
-pcgamer.com
-pcgamesn.com
-pcmag.com
-people.com
-petapixel.com
-petfinder.com
-petmd.com
-pexels.com
-phocuswire.com
-phoronix.com
-phys.org
-piie.com
-pikiran-rakyat.com
-pinterest.com
-pipeburn.com
-pitchbook.com
-pitchfork.com
-pixabay.com
-pixiv.net
-pixnet.net
-plaid.com
-planetary.org
-planetf1.com
-playbill.com
-playstation.com
-plex.tv
-plos.org
-pluralsight.com
-pnas.org
-pngtree.com
-pointemagazine.com
-poki.com
-politico.com
-politifact.com
-polygon.com
-pons.com
-popmatters.com
-popsugar.com
-popularwoodworking.com
-poshmark.com
-powerthesaurus.org
-poynter.org
-practicalecommerce.com
-practo.com
-precisionnutrition.com
-pressbooks.pub
-prevention.com
-prezi.com
-primark.com
-primevideo.com
-prnewswire.com
-pro-football-reference.com
-profootballfocus.com
-profootballtalk.com
-project-syndicate.org
-prokerala.com
-prom.ua
-propertyshark.com
-propublica.org
-protocol.com
-prtimes.jp
-psu.edu
-psychcentral.com
-psychologytoday.com
-publicbooks.org
-publishersweekly.com
-punchbowl.news
-punchdrink.com
-purdue.edu
-purexbox.com
-pushsquare.com
-pymnts.com
-python.org
-quantamagazine.org
-quillbot.com
-quillette.com
-quizlet.com
-quora.com
-ra.co
-racer.com
-radio-canada.ca
-radiofrance.fr
-radiotimes.com
-rae.es
-railwaygazette.com
-rajasthan.gov.in
-rakuten.com
-ranker.com
-rarediseases.org
-rateyourmusic.com
-rd.com
-readingrockets.org
-realclearpolitics.com
-realestate.com.au
-realsimple.com
-realtor.com
-recipetineats.com
-redbubble.com
-reddit.com
-redfin.com
-redhat.com
-reference.com
-refinery29.com
-rei.com
-remodelista.com
-repairpal.com
-repricerexpress.com
-repubblica.it
-researchgate.net
-restaurantguru.com
-restofworld.org
-retaildive.com
-reuters.com
-reverso.net
-reviewed.com
-revzilla.com
-rgs.org
-rhs.org.uk
-ricksteves.com
-ridermagazine.com
-rightmove.co.uk
-rijksmuseum.nl
-ring.com
-roadandtrack.com
-roads-and-kingdoms.com
-roadtrippers.com
-robbreport.com
-roblox.com
-robotics.org
-rocketreach.co
-rockler.com
-rockpapershotgun.com
-rogerebert.com
-roku.com
-rollingstone.com
-rome2rio.com
-romper.com
-rottentomatoes.com
-roughguides.com
-rover.com
-rozetka.com.ua
-rt.com
-rtings.com
-runnersworld.com
-rutube.ru
-saastr.com
-safewise.com
-sagepub.com
-sahibinden.com
-sainsburys.co.uk
-salesforce.com
-saleshacker.com
-sallysbakingaddiction.com
-salon.com
-samsclub.com
-samsung.com
-saveur.com
-savvygardening.com
-sbnation.com
-schneier.com
-scholastic.com
-science.org
-sciencedaily.com
-sciencedirect.com
-sciencemag.org
-scientificamerican.com
-scmp.com
-scottscheapflights.com
-screenrant.com
-screwfix.com
-scribd.com
-searchengineland.com
-seat61.com
-seatguru.com
-secretflying.com
-secretldn.com
-security.org
-securityweek.com
-seekingalpha.com
-self.com
-seniorsmatter.com
-sequoiacap.com
-seriouseats.com
-service-public.fr
-service.gov.uk
-shabdkosh.com
-shacknews.com
-shape.com
-shazam.com
-shein.com
-shiksha.com
-shopee.co.id
-shopify.com
-shrm.org
-shutterstock.com
-si.com
-sidetracked.com
-sifted.eu
-siliconera.com
-simpleflying.com
-simplisafe.com
-simplyrecipes.com
-sitepoint.com
-skift.com
-skillshare.com
-skincancer.org
-skwigly.co.uk
-sky.com
-skyandtelescope.org
-skynews.com
-skyscanner.com
-skysports.com
-slack.com
-slashfilm.com
-slashgear.com
-slate.com
-slideshare.net
-smashingmagazine.com
-smh.com.au
-smilingmind.com.au
-smithhotels.com
-smithsonianmag.com
-smule.com
-smythstoys.com
-snopes.com
-snowboarder.com
-soapcentral.com
-soccerway.com
-socialmediaexaminer.com
-sofascore.com
-softonic.com
-sophos.com
-sortiraparis.com
-soundcloud.com
-southernliving.com
-space.com
-spanishdict.com
-spectator.co.uk
-spiceworks.com
-spiegel.de
-spin.com
-sportingnews.com
-sportsdirect.com
-sportskeeda.com
-spotify.com
-springer.com
-squarespace.com
-ssa.gov
-stackexchange.com
-stackoverflow.com
-standard.co.uk
-stanford.edu
-stardewvalleywiki.com
-state.gov
-statista.com
-statnews.com
-steamcommunity.com
-steampowered.com
-stereogum.com
-stern.de
-stlouisfed.org
-straitstimes.com
-stratechery.com
-stringsmagazine.com
-stripe.com
-studocu.com
-study.com
-studysmarter.co.uk
-studyx.ai
-subito.it
-substack.com
-sueddeutsche.de
-superpages.com
-superuser.com
-surfer.com
-swimmingworldmagazine.com
-t-online.de
-t.me
-tabelog.com
-tablethotels.com
-tandfonline.com
-tapas.io
-tarabrach.com
-target.com
-tass.com
-taste.com.au
-tasteofhome.com
-tastingtable.com
-tate.org.uk
-tcj.com
-teacherspayteachers.com
-teamtreehouse.com
-tech.eu
-techhive.com
-technologyreview.com
-techradar.com
-techtarget.com
-ted.com
-telegraph.co.uk
-tempo.co
-temu.com
-tennis.com
-tenor.com
-terra.com.br
-tesco.com
-tesla.com
-teslarati.com
-testbook.com
-texas.gov
-the-next-web.com
-the-race.com
-the-scientist.com
-the-sun.com
-theage.com.au
-theamericanscholar.org
-theartnewspaper.com
-theathletic.com
-theatlantic.com
-theawl.com
-theb1m.com
-thebaffler.com
-theblockcrypto.com
-thebump.com
-theconversation.com
-thecraftsy.com
-theculturetrip.com
-thedefiant.io
-thedodo.com
-thedrive.com
-theenglishgarden.co.uk
-thefreedictionary.com
-thegamer.com
-theglobeandmail.com
-theguardian.com
-thehackernews.com
-thehill.com
-thehindu.com
-theinformation.com
-theintercept.com
-thejakartapost.com
-thekitchn.com
-theknot.com
-thelancet.com
-themarshallproject.org
-themighty.com
-themillions.com
-themirror.com
-themotleyfool.com
-themoviedb.org
-themreport.com
-themuse.com
-thenationalrealestateinvestor.com
-theoutbound.com
-theparisreview.org
-thephoblographer.com
-thepioneerwoman.com
-thepointmag.com
-thepointsguy.com
-therange.co.uk
-thesaurus.com
-thesavvybackpacker.com
-theschooloflife.com
-thesimpledollar.com
-thespruce.com
-thesprucecrafts.com
-thespruceeats.com
-thesprucepets.com
-thestage.co.uk
-thestreet.com
-thesun.co.uk
-thetimes.com
-theverge.com
-theviolinchannel.com
-thewhiskeywash.com
-thisiscolossal.com
-thisoldhouse.com
-thoughtco.com
-threads.com
-threatpost.com
-thriftytraveler.com
-thrillist.com
-ticketmaster.com
-tiktok.com
-time.com
-timeanddate.com
-timeout.com
-timesnownews.com
-tinybuddha.com
-tistory.com
-tkmaxx.com
-tlnt.com
-tn.gov
-today.com
-todaysparent.com
-todoist.com
-tokopedia.com
-tomsguide.com
-tomshardware.com
-topgear.com
-tor.com
-toucharcade.com
-towardsdatascience.com
-townandcountrymag.com
-tractorsupply.com
-tradingeconomics.com
-tradingview.com
-transfermarkt.com
-travelandleisure.com
-travelocity.com
-traveloka.com
-travelpulse.com
-travelweekly.com
-trello.com
-trendyol.com
-tribunnews.com
-tricycle.org
-trip.com
-tripadvisor.com
-trivago.com
-trulia.com
-trustpilot.com
-tsa.gov
-ttgmedia.com
-tuasaude.com
-tui.co.uk
-tumblr.com
-tureng.com
-tutsplus.com
-tvguide.com
-tvinsider.com
-tvtropes.org
-twilio.com
-twitch.tv
-twitter.com
-ubereats.com
-ucdavis.edu
-udacity.com
-udemy.com
-udn.com
-uefa.com
-ufc.com
-ufl.edu
-ukr.net
-uli.org
-ulta.com
-ultimate-guitar.com
-ultimatemotorcycling.com
-umich.edu
-umn.edu
-un.org
-unacademy.com
-unam.mx
-unclutterer.com
-unesco.org
-uniqlo.com
-universetoday.com
-unlockfood.ca
-unsplash.com
-uol.com.br
-upcomer.com
-upenn.edu
-upgradedpoints.com
-upi.com
-uptodown.com
-urbandictionary.com
-usa.gov
-usatoday.com
-uscis.gov
-usda.gov
-usembassy.gov
-usgs.gov
-ushmm.org
-usmagazine.com
-usnews.com
-usps.com
-utah.gov
-utexas.edu
-va.gov
-variety.com
-vatican.va
-vecteezy.com
-vectorstock.com
-vedantu.com
-vercel.com
-verizon.com
-verywellfit.com
-verywellhealth.com
-verywellmind.com
-vetstreet.com
-vg247.com
-viator.com
-vice.com
-vietnam.vn
-viewfromthewing.com
-vimeo.com
-vinepair.com
-virgilio.it
-virginia.gov
-vivint.com
-vk.com
-vmware.com
-vocabulary.com
-vocal.media
-vogue.com
-vox.com
-vrbo.com
-vulture.com
-w3schools.com
-wa.gov
-walgreens.com
-walmart.com
-wanderlog.com
-washingtonpost.com
-wattpad.com
-wayfair.com
-waze.com
-weather.com
-weblio.jp
-webmd.com
-website-files.com
-webtoons.com
-weebly.com
-weforum.org
-wellandgood.com
-welt.de
-wendywutours.com.au
-wesleyanargus.com
-whattoexpect.com
-wheree.com
-whirlpool.com
-who.int
-whowhatwear.com
-wikidata.org
-wikihow.com
-wikimedia.org
-wikipedia.org
-wikivoyage.org
-wikiwand.com
-wiktionary.org
-wiley.com
-winefolly.com
-winemag.com
-wired.com
-wisc.edu
-wise.com
-wisegeek.com
-womenshealthmag.com
-wonderopolis.org
-wondershare.com
-woodmagazine.com
-woodsmith.com
-woodworkersjournal.com
-wordhippo.com
-wordnik.com
-wordpress.com
-wordreference.com
-wordsmyth.net
-wordwall.net
-workable.com
-workaway.info
-world-architects.com
-world.rugby
-worldatlas.com
-worldbank.org
-worldwildlife.org
-wrc.com
-wsj.com
-wwd.com
-www.nhs.uk
-wwwaluxurytravelblog.com
-x.com
-xbox.com
-xinhuanet.com
-yahoo.com
-yale.edu
-yaleclimateconnections.org
-yandex.ru
-yardbarker.com
-ycombinator.com
-yell.com
-yellowpages.com
-yelp.com
-yogajournal.com
-yomiuri.co.jp
-youm7.com
-yourdictionary.com
-yourmechanic.com
-youtube.com
-zapier.com
-zara.com
-zdnet.com
-zendesk.com
-zerotothree.org
-zillow.com
-ziprecruiter.com
-zoominfo.com
+https://123rf.com
+https://1mg.com
+https://20minutes.fr
+https://20minutos.es
+https://2carpros.com
+https://365scores.com
+https://500px.com
+https://9to5mac.com
+https://a-z-animals.com
+https://a16z.com
+https://aa.com
+https://aaa.com
+https://aajtak.in
+https://aarp.org
+https://abc.net.au
+https://abeautifulmess.com
+https://abplive.com
+https://abril.com.br
+https://academia.edu
+https://academicearth.org
+https://accor.com
+https://accuweather.com
+https://acefitness.org
+https://acehardware.com
+https://acs.org
+https://action.com
+https://actu.fr
+https://acupuncturetoday.com
+https://adage.com
+https://adidas.com
+https://adobe.com
+https://adt.com
+https://adventure-journal.com
+https://adventure.com
+https://advpulse.com
+https://adweek.com
+https://aeon.co
+https://af.mil
+https://afar.com
+https://afp.com
+https://ageuk.org.uk
+https://agingcare.com
+https://agoda.com
+https://agri-pulse.com
+https://airbnb.com
+https://airlineratings.com
+https://aiscore.com
+https://akc.org
+https://alamy.com
+https://alberta.ca
+https://alibaba.com
+https://aliexpress.com
+https://alistapart.com
+https://aljazeera.com
+https://allegro.pl
+https://allevents.in
+https://allmusic.com
+https://allocine.fr
+https://allrecipes.com
+https://allsides.com
+https://alltrails.com
+https://allure.com
+https://almaany.com
+https://almanac.com
+https://alz.org
+https://amarujala.com
+https://amazon.com
+https://amcollege.edu
+https://ameblo.jp
+https://americanexpress.com
+https://americangeo.org
+https://americantheatre.org
+https://aminoapps.com
+https://amnh.org
+https://analyticsvidhya.com
+https://anandtech.com
+https://ancient-origins.net
+https://ancient.eu
+https://android.com
+https://androidpolice.com
+https://angi.com
+https://animationmagazine.net
+https://answers.com
+https://antaranews.com
+https://anthropocenemagazine.org
+https://anthropologie.com
+https://aol.com
+https://apa.org
+https://apartments.com
+https://apartmenttherapy.com
+https://apkpure.com
+https://apnews.com
+https://apple.com
+https://appliance-blog.com
+https://aps.org
+https://aptoide.com
+https://arcgis.com
+https://archaeology.org
+https://archdaily.com
+https://architectsjournal.co.uk
+https://architecturaldigest.com
+https://architizer.com
+https://archive.org
+https://archlinux.org
+https://archpaper.com
+https://ardmediathek.de
+https://argentina.gob.ar
+https://argos.co.uk
+https://army.mil
+https://arstechnica.com
+https://artforum.com
+https://arthritis.org
+https://artic.edu
+https://artnet.com
+https://artofmanliness.com
+https://artsy.net
+https://as.com
+https://asahi.com
+https://asana.com
+https://asanet.org
+https://asda.com
+https://asecurelife.com
+https://asos.com
+https://asus.com
+https://athleticsweekly.com
+https://athlonsports.com
+https://atlasobscura.com
+https://atlassian.com
+https://attomdata.com
+https://audubon.org
+https://autoblog.com
+https://autoevolution.com
+https://autosport.com
+https://autoweek.com
+https://autozone.com
+https://avclub.com
+https://awardwallet.com
+https://axios.com
+https://ayurveda.com
+https://azlyrics.com
+https://bab.la
+https://babycenter.com
+https://backlinko.com
+https://backpacker.com
+https://baidu.com
+https://bain.com
+https://bajajfinserv.in
+https://bandcamp.com
+https://bankofamerica.com
+https://bankrate.com
+https://barnesandnoble.com
+https://barrons.com
+https://baseball-reference.com
+https://basketball-reference.com
+https://bbb.org
+https://bbc.com
+https://bbcgoodfood.com
+https://beebom.com
+https://beeradvocate.com
+https://berkeley.edu
+https://bestbuy.com
+https://betterhealth.vic.gov.au
+https://bfmtv.com
+https://bhaskar.com
+https://bhg.com
+https://biblegateway.com
+https://biblestudytools.com
+https://bicycling.com
+https://bigcommerce.com
+https://biggerpockets.com
+https://bigthink.com
+https://bigw.com.au
+https://bikeexif.com
+https://bild.de
+https://bilibili.tv
+https://billboard.com
+https://biologynews.net
+https://biomedcentral.com
+https://bizjournals.com
+https://bleacherreport.com
+https://bleepingcomputer.com
+https://blibli.com
+https://blogspot.com
+https://bloomberg.com
+https://bls.gov
+https://bmj.com
+https://bobvila.com
+https://bodybuilding.com
+https://bogleheads.org
+https://bol.com
+https://bonappetit.com
+https://booking.com
+https://bookmyshow.com
+https://bookriot.com
+https://boomplay.com
+https://booooooom.com
+https://boots.com
+https://botanical.com
+https://brainblogger.com
+https://brainly.com
+https://brainpop.com
+https://breakingmuscle.com
+https://breakingtravelnews.com
+https://brilliant.org
+https://brinkshome.com
+https://brit.co
+https://britannica.com
+https://britishcouncil.org
+https://britishmuseum.org
+https://broadwayworld.com
+https://brookings.edu
+https://budgetyourtrip.com
+https://bunnings.com.au
+https://business-standard.com
+https://businessinsider.com
+https://businessoffashion.com
+https://businesstravelnews.com
+https://businesswire.com
+https://buzzfeed.com
+https://byjus.com
+https://byrdie.com
+https://ca.gov
+https://calculator.net
+https://calm.com
+https://cambridge.org
+https://canada.ca
+https://canadiantire.ca
+https://cancer.gov
+https://canva.com
+https://capitalone.com
+https://caranddriver.com
+https://carbibles.com
+https://carcare.org
+https://carfax.com
+https://cargurus.com
+https://carrefour.fr
+https://cars.com
+https://cartoonbrew.com
+https://carwale.com
+https://cato.org
+https://catster.com
+https://cbc.ca
+https://cbr.com
+https://cbsnews.com
+https://cbssports.com
+https://cctvplus.com
+https://cdc.gov
+https://cdiscount.com
+https://cell.com
+https://cern.ch
+https://chalkbeat.org
+https://channel4.com
+https://chargedevs.com
+https://checkyourfact.com
+https://chegg.com
+https://chewy.com
+https://childmind.org
+https://chip.de
+https://chopra.com
+https://chosun.com
+https://churchofjesuschrist.org
+https://cinemablend.com
+https://city-data.com
+https://cjr.org
+https://ck12.org
+https://clarin.com
+https://cleaningtheglass.com
+https://cleantechnica.com
+https://cleartax.in
+https://clevelandclinic.org
+https://climbing.com
+https://close.com
+https://cloudflare.com
+https://cnbc.com
+https://cnet.com
+https://cnn.com
+https://cnnbrasil.com.br
+https://cntraveler.com
+https://code.org
+https://codecademy.com
+https://coindesk.com
+https://cointelegraph.com
+https://collider.com
+https://collinsdictionary.com
+https://colorado.gov
+https://columbia.edu
+https://com.be
+https://comicbook.com
+https://comicsbeat.com
+https://commentary.org
+https://commonsense.org
+https://commonsensemedia.org
+https://computerworld.com
+https://consequence.net
+https://conservation.org
+https://consumerreports.org
+https://containerstore.com
+https://contentmarketinginstitute.com
+https://cookinglight.com
+https://cookpad.com
+https://cornell.edu
+https://corriere.it
+https://cosmopolitan.com
+https://costco.com
+https://couchsurfing.com
+https://countryliving.com
+https://coursera.org
+https://craftbeer.com
+https://craigslist.org
+https://craiyon.com
+https://crash.net
+https://crazygames.com
+https://creditkarma.com
+https://crimereads.com
+https://crohnscolitisfoundation.org
+https://crosswordsolver.com
+https://crowdfundinsider.com
+https://cruisecritic.com
+https://crunchbase.com
+https://crunchyroll.com
+https://csoonline.com
+https://css-tricks.com
+https://ct.gov
+https://ctbuh.org
+https://ctvnews.ca
+https://cuemath.com
+https://cultureamp.com
+https://curbed.com
+https://curiositystream.com
+https://currys.co.uk
+https://cvs.com
+https://cyberscoop.com
+https://cycleworld.com
+https://cyclingnews.com
+https://cylex-uk.co.uk
+https://dailymail.co.uk
+https://dailymotion.com
+https://dancemagazine.com
+https://daringfireball.net
+https://darkreading.com
+https://data.gouv.fr
+https://datacamp.com
+https://daum.net
+https://dcinside.com
+https://deadline.com
+https://deadspin.com
+https://debian.org
+https://decanter.com
+https://decider.com
+https://decrypt.co
+https://deepl.com
+https://deepmind.com
+https://deezer.com
+https://definitions.net
+https://delish.com
+https://dell.com
+https://delta.com
+https://departures.com
+https://depositphotos.com
+https://design-milk.com
+https://designboom.com
+https://destructoid.com
+https://detik.com
+https://dev.to
+https://deviantart.com
+https://dexerto.com
+https://dezeen.com
+https://dhgate.com
+https://diabetes.org
+https://dickssportinggoods.com
+https://dictionary.com
+https://digital-photography-school.com
+https://digitalcommerce360.com
+https://digitalocean.com
+https://digitalspy.com
+https://digitaltrends.com
+https://dillards.com
+https://discogs.com
+https://discord.com
+https://discovermagazine.com
+https://disneyplus.com
+https://distiller.com
+https://diy.com
+https://diynetwork.com
+https://dn.se
+https://dnb.com
+https://docker.com
+https://docomo.ne.jp
+https://dogster.com
+https://doityourself.com
+https://dollarflightclub.com
+https://domestika.org
+https://dominomag.com
+https://doodlecraftblog.com
+https://doordash.com
+https://dot.gov
+https://dotesports.com
+https://doubtnut.com
+https://doyogawithme.com
+https://dpa.com
+https://dpreview.com
+https://draxe.com
+https://dreamstime.com
+https://drift.com
+https://drugs.com
+https://drweil.com
+https://dunelm.com
+https://duolingo.com
+https://dw.com
+https://dwell.com
+https://dzen.ru
+https://dzone.com
+https://ea.com
+https://easyjet.com
+https://eater.com
+https://eatingwell.com
+https://eatright.org
+https://ebay.com
+https://ebsco.com
+https://ecommercetimes.com
+https://econjwatch.org
+https://economictimes.com
+https://economist.com
+https://edmunds.com
+https://education.com
+https://educative.io
+https://edutopia.org
+https://edx.org
+https://eetimes.com
+https://efe.com
+https://egghead.io
+https://eksisozluk.com
+https://elcomercio.pe
+https://elconfidencial.com
+https://elcorteingles.es
+https://electrek.co
+https://electricliterature.com
+https://elespanol.com
+https://elle.com
+https://elmundo.es
+https://elpais.com
+https://eltiempo.com
+https://encyclopedia.com
+https://engadget.com
+https://english-heritage.org.uk
+https://entrepreneur.com
+https://eonline.com
+https://epa.gov
+https://epicentrk.ua
+https://epicgames.com
+https://epicurious.com
+https://ericthecarguy.com
+https://esa.int
+https://escapistmagazine.com
+https://espn.com
+https://espncricinfo.com
+https://esportsearnings.com
+https://esportsinsider.com
+https://esportsobserver.com
+https://esquire.com
+https://esri.com
+https://estadao.com.br
+https://etailinsights.com
+https://etsy.com
+https://etymonline.com
+https://euobserver.com
+https://eurogamer.net
+https://euronews.com
+https://europa.eu
+https://ev-database.org
+https://evannex.com
+https://eventbrite.com
+https://evernote.com
+https://everydayhealth.com
+https://ew.com
+https://examine.com
+https://expedia.com
+https://explainthatstuff.com
+https://explorersweb.com
+https://express.co.uk
+https://facebook.com
+https://facinghistory.org
+https://factcheck.org
+https://familyhandyman.com
+https://famousbirthdays.com
+https://fandango.com
+https://fandom.com
+https://fangraphs.com
+https://farfetch.com
+https://fastcompany.com
+https://fatherly.com
+https://favecrafts.com
+https://faz.net
+https://fbref.com
+https://fc2.com
+https://fda.gov
+https://featureshoot.com
+https://fedex.com
+https://fedoramagazine.org
+https://fextralife.com
+https://filmaffinity.com
+https://filmweb.pl
+https://financialexpress.com
+https://finegardening.com
+https://finewoodworking.com
+https://finextra.com
+https://finn.no
+https://fintechfutures.com
+https://firstcry.com
+https://firstround.com
+https://fiveable.me
+https://fivethirtyeight.com
+https://flashscore.com
+https://flickr.com
+https://flightaware.com
+https://flightradar24.com
+https://flipkart.com
+https://flyertalk.com
+https://flylady.net
+https://fnac.com
+https://fnal.gov
+https://focus.de
+https://fodors.com
+https://food.com
+https://food52.com
+https://foodandwine.com
+https://foodnetwork.com
+https://foodrevolution.org
+https://footballoutsiders.com
+https://forbes.com
+https://ford.com
+https://foreignaffairs.com
+https://foreignpolicy.com
+https://formula1.com
+https://forrester.com
+https://fortune.com
+https://fourfourtwo.com
+https://foxnews.com
+https://foxsports.com
+https://france24.com
+https://francebleu.fr
+https://franceinfo.fr
+https://free.fr
+https://freecodecamp.org
+https://freepik.com
+https://freightwaves.com
+https://frieze.com
+https://frommers.com
+https://frontendmasters.com
+https://frontiersin.org
+https://fs.blog
+https://fstoppers.com
+https://ft.com
+https://fullfact.org
+https://fullycharged.show
+https://futurelearn.com
+https://gadventures.com
+https://gaia.com
+https://game8.co
+https://gamedeveloper.com
+https://gamerant.com
+https://gamereactor.eu
+https://gamesindustry.biz
+https://gamespot.com
+https://gamesradar.com
+https://gardendesign.com
+https://gardenersworld.com
+https://gardenista.com
+https://gartner.com
+https://gearjunkie.com
+https://gearpatrol.com
+https://geeksforgeeks.org
+https://gematsu.com
+https://genius.com
+https://geographical.co.uk
+https://georgia.gov
+https://getepic.com
+https://getty.edu
+https://gettyimages.com
+https://getyourguide.com
+https://giantbomb.com
+https://github.com
+https://gitlab.com
+https://gizmodo.com
+https://glamour.com
+https://glassdoor.com
+https://globaltrademag.com
+https://globenewswire.com
+https://globest.com
+https://globo.com
+https://glosbe.com
+https://go.com
+https://goal.com
+https://gocomics.com
+https://goibibo.com
+https://golf.com
+https://gong.io
+https://goo.ne.jp
+https://goodhousekeeping.com
+https://goodreads.com
+https://goodrx.com
+https://goodtherapy.org
+https://google.com
+https://googleblog.com
+https://goop.com
+https://gosugamers.net
+https://gouv.qc.ca
+https://gov.bc.ca
+https://gq.com
+https://grammarly.com
+https://greatist.com
+https://greencarreports.com
+https://groupon.com
+https://grubhub.com
+https://guernicamag.com
+https://gutefrage.net
+https://gutenberg.org
+https://hackernoon.com
+https://handmadecharlotte.com
+https://harborfreight.com
+https://harpersbazaar.com
+https://harvard.edu
+https://hbr.org
+https://headforpoints.com
+https://headspace.com
+https://health.com
+https://healthdirect.gov.au
+https://healthgrades.com
+https://healthline.com
+https://healthychildren.org
+https://heart.org
+https://heb.com
+https://hellomagazine.com
+https://helpscout.com
+https://heritagedaily.com
+https://herzindagi.com
+https://hgtv.com
+https://highlandwoodworking.com
+https://highsnobiety.com
+https://hilton.com
+https://hinative.com
+https://hindustantimes.com
+https://hinkhoj.com
+https://historic-uk.com
+https://history.com
+https://historyextra.com
+https://historynet.com
+https://historytoday.com
+https://hltv.org
+https://hm.com
+https://hobbylobby.com
+https://hockey-reference.com
+https://hockeyviz.com
+https://hola.com
+https://holidaycheck.de
+https://hollywoodreporter.com
+https://home-storage-solutions-101.com
+https://homedepot.com
+https://homes.com
+https://homesandgardens.com
+https://hometalk.com
+https://hopkinsmedicine.org
+https://hopper.com
+https://hortmag.com
+https://hospitalitynet.org
+https://hostelworld.com
+https://hotels.com
+https://hotpepper.jp
+https://housebeautiful.com
+https://housingwire.com
+https://houzz.com
+https://howstuffworks.com
+https://howtogeek.com
+https://hp.com
+https://hse.ie
+https://hubpages.com
+https://hubspot.com
+https://huffpost.com
+https://hulu.com
+https://hunker.com
+https://hyatt.com
+https://hypebeast.com
+https://hyperallergic.com
+https://ias.edu
+https://ibm.com
+https://idealo.de
+https://idntimes.com
+https://ieee.org
+https://ifixit.com
+https://iflscience.com
+https://ign.com
+https://iheart.com
+https://iheartorganizing.com
+https://ihg.com
+https://ikea.com
+https://illinois.gov
+https://imbibemagazine.com
+https://imdb.com
+https://imf.org
+https://imgur.com
+https://in.gov
+https://inc.com
+https://inchcalculator.com
+https://indeed.com
+https://independent.co.uk
+https://independenttraveler.com
+https://india.com
+https://indiamart.com
+https://indianexpress.com
+https://indiatimes.com
+https://indiatoday.in
+https://indiewire.com
+https://inews.co.uk
+https://infobae.com
+https://infoq.com
+https://infoworld.com
+https://ingles.com
+https://inman.com
+https://insideclimatenews.org
+https://insideevs.com
+https://insidehook.com
+https://insighttimer.com
+https://instacart.com
+https://instagram.com
+https://instructables.com
+https://instyle.com
+https://intercom.com
+https://intrepidtravel.com
+https://invenglobal.com
+https://investing.com
+https://investopedia.com
+https://irishtimes.com
+https://ironandair.com
+https://irs.gov
+https://issuu.com
+https://istockphoto.com
+https://itsfoss.com
+https://itsnicethat.com
+https://ixl.com
+https://jagran.com
+https://jagranjosh.com
+https://jalan.net
+https://jalopnik.com
+https://japan-guide.com
+https://japantimes.co.jp
+https://jawapos.com
+https://jazztimes.com
+https://jbhifi.com.au
+https://jcpenney.com
+https://jetsetter.com
+https://jiji.com
+https://jiosaavn.com
+https://johnlewis.com
+https://jooble.org
+https://journaldesfemmes.fr
+https://jstor.org
+https://justanswer.com
+https://justdial.com
+https://justia.com
+https://justice.gov
+https://justwatch.com
+https://juxtapoz.com
+https://jw.org
+https://kaggle.com
+https://kakaku.com
+https://kayak.com
+https://kbb.com
+https://kdnuggets.com
+https://kenpom.com
+https://khanacademy.org
+https://kicker.de
+https://kiddle.co
+https://kidshealth.org
+https://kinopoisk.ru
+https://kiplinger.com
+https://kirkusreviews.com
+https://kiwicollection.com
+https://klarna.com
+https://kleinanzeigen.de
+https://klook.com
+https://kmart.com.au
+https://kohls.com
+https://kompas.com
+https://koreaherald.com
+https://kotaku.com
+https://krebsonsecurity.com
+https://kroger.com
+https://kumparan.com
+https://lanacion.com.ar
+https://langeek.co
+https://larazon.es
+https://lareviewofbooks.org
+https://larousse.fr
+https://last.fm
+https://lastminute.com
+https://latimes.com
+https://lattice.com
+https://lavanguardia.com
+https://lazada.co.id
+https://ldoceonline.com
+https://leboncoin.fr
+https://leevalley.com
+https://lefigaro.fr
+https://legacy.com
+https://lego.com
+https://lemon8-app.com
+https://lemonde.fr
+https://lenovo.com
+https://lensculture.com
+https://leo.org
+https://leparisien.fr
+https://lequipe.fr
+https://lerobert.com
+https://letras.com
+https://letterboxd.com
+https://lever.co
+https://leverageedu.com
+https://lg.com
+https://libguides.com
+https://libretexts.org
+https://lifehacker.com
+https://lifewire.com
+https://line.me
+https://linguee.com
+https://linkedin.com
+https://linternaute.fr
+https://linux.com
+https://lionsroar.com
+https://liputan6.com
+https://liquipedia.net
+https://lithub.com
+https://livehindustan.com
+https://livejournal.com
+https://livemint.com
+https://livescience.com
+https://loc.gov
+https://lonelyplanet.com
+https://longreads.com
+https://lostartpress.com
+https://louisvuitton.com
+https://louvre.fr
+https://loveandlemons.com
+https://lovecrafts.com
+https://lowes.com
+https://loyaltylobby.com
+https://lrb.co.uk
+https://lumenlearning.com
+https://lung.org
+https://luxedigital.com
+https://luxurytravelmagazine.com
+https://lwn.net
+https://lww.com
+https://lyricstranslate.com
+https://lyst.com
+https://macys.com
+https://made-in-china.com
+https://magazineluiza.com.br
+https://magnumphotos.com
+https://mail.ru
+https://makemytrip.com
+https://makeuseof.com
+https://makezine.com
+https://manta.com
+https://mapbox.com
+https://mapcarta.com
+https://mappy.com
+https://mapquest.com
+https://marca.com
+https://marketingprofs.com
+https://marketscreener.com
+https://marketwatch.com
+https://marksandspencer.com
+https://marriott.com
+https://marthastewart.com
+https://maryland.gov
+https://mashable.com
+https://mass.gov
+https://massivelyop.com
+https://masterclass.com
+https://matadornetwork.com
+https://max.com
+https://mayoclinic.org
+https://mcdonalds.com
+https://mckinsey.com
+https://mcmasteroptimalaging.org
+https://mdpi.com
+https://mediabiasfactcheck.com
+https://medicalnewstoday.com
+https://medicinenet.com
+https://medium.com
+https://medlineplus.gov
+https://medscape.com
+https://meesho.com
+https://menards.com
+https://menshealth.com
+https://mensjournal.com
+https://mentalfloss.com
+https://menupix.com
+https://mercadolibre.com.mx
+https://mercadolivre.com.br
+https://mercari.com
+https://merkur.de
+https://merriam-webster.com
+https://merrymaids.com
+https://metacritic.com
+https://metmuseum.org
+https://metoffice.gov.uk
+https://metro.co.uk
+https://mhanational.org
+https://michaeljfox.org
+https://michaels.com
+https://michelin.com
+https://michigan.gov
+https://microsoft.com
+https://militarytimes.com
+https://mindbodygreen.com
+https://mindful.org
+https://mirror.co.uk
+https://mit.edu
+https://mk.co.kr
+https://mlb.com
+https://mlive.com
+https://mo.gov
+https://moddb.com
+https://modernretail.co
+https://moma.org
+https://monday.com
+https://moneycontrol.com
+https://moneysavingexpert.com
+https://mongodb.com
+https://moovitapp.com
+https://morningstar.com
+https://motogp.com
+https://motorcycle.com
+https://motorcyclenews.com
+https://motorsport.com
+https://motortrend.com
+https://mountsinai.org
+https://movieweb.com
+https://movoto.com
+https://moz.com
+https://mozilla.org
+https://msdmanuals.com
+https://msn.com
+https://msu.edu
+https://mtsobek.com
+https://mubi.com
+https://muchbetteradventures.com
+https://mumsnet.com
+https://mundodeportivo.com
+https://muscleandfitness.com
+https://musixmatch.com
+https://my-best.com
+https://mydomaine.com
+https://myer.com.au
+https://myfitnesspal.com
+https://mynavi.jp
+https://myntra.com
+https://nami.org
+https://namibian.com.na
+https://namu.wiki
+https://napaonline.com
+https://nasa.gov
+https://nascar.com
+https://nasdaq.com
+https://nate.com
+https://natgeomaps.com
+https://nationalarchives.gov.uk
+https://nationalgeographic.com
+https://nationalreview.com
+https://nature.com
+https://naver.com
+https://navitime.co.jp
+https://nba.com
+https://nbcnews.com
+https://nbcsports.com
+https://nber.org
+https://ncert.nic.in
+https://ncsu.edu
+https://ndr.de
+https://ndtv.com
+https://neilpatel.com
+https://nerdwallet.com
+https://netflix.com
+https://netlify.com
+https://newcriterion.com
+https://news-medical.net
+https://news.com.au
+https://news18.com
+https://newsbreak.com
+https://newscientist.com
+https://newsweek.com
+https://newyorker.com
+https://next.co.uk
+https://nextavenue.org
+https://nextdoor.com
+https://nexusmods.com
+https://nfl.com
+https://nhk.or.jp
+https://nhl.com
+https://nhsinform.scot
+https://niemanlab.org
+https://nih.gov
+https://nike.com
+https://nikkei.com
+https://nintendo.com
+https://nintendolife.com
+https://nj.gov
+https://nme.com
+https://noaa.gov
+https://noclip.video
+https://noon.com
+https://nordstrom.com
+https://note.com
+https://npr.org
+https://nps.gov
+https://nrc.nl
+https://nrf.com
+https://nsw.gov.au
+https://nutritionfacts.org
+https://nvidia.com
+https://ny.gov
+https://nybooks.com
+https://nyc.gov
+https://nymag.com
+https://nypost.com
+https://nytimes.com
+https://nzherald.co.nz
+https://octanner.com
+https://oed.com
+https://ohio.gov
+https://okdiario.com
+https://olx.ua
+https://olympics.com
+https://omgubuntu.co.uk
+https://omnicalculator.com
+https://onefootball.com
+https://onelook.com
+https://onemileatatime.com
+https://ontario.ca
+https://openai.com
+https://openculture.com
+https://opensource.com
+https://openstreetmap.org
+https://opentable.com
+https://operanews.com
+https://optasports.com
+https://oracle.com
+https://orbitz.com
+https://ordnancesurvey.co.uk
+https://oregon.gov
+https://oreillyauto.com
+https://organized-home.com
+https://osu.edu
+https://otto.de
+https://ouest-france.fr
+https://oup.com
+https://outdoorphotographer.com
+https://outdoorproject.com
+https://outreach.io
+https://outsideonline.com
+https://ox.ac.uk
+https://oxfordlearnersdictionaries.com
+https://oxfordreference.com
+https://ozon.ru
+https://pa.gov
+https://pagesjaunes.fr
+https://pantip.com
+https://pappers.fr
+https://parade.com
+https://parents.com
+https://patagonia.com
+https://patch.com
+https://patient.info
+https://paulsellers.com
+https://paxex.aero
+https://pbs.org
+https://pbslearningmedia.org
+https://pcgamer.com
+https://pcgamesn.com
+https://pcmag.com
+https://people.com
+https://petapixel.com
+https://petfinder.com
+https://petmd.com
+https://pexels.com
+https://phocuswire.com
+https://phoronix.com
+https://phys.org
+https://piie.com
+https://pikiran-rakyat.com
+https://pinterest.com
+https://pipeburn.com
+https://pitchbook.com
+https://pitchfork.com
+https://pixabay.com
+https://pixiv.net
+https://pixnet.net
+https://plaid.com
+https://planetary.org
+https://planetf1.com
+https://playbill.com
+https://playstation.com
+https://plex.tv
+https://plos.org
+https://pluralsight.com
+https://pnas.org
+https://pngtree.com
+https://pointemagazine.com
+https://poki.com
+https://politico.com
+https://politifact.com
+https://polygon.com
+https://pons.com
+https://popmatters.com
+https://popsugar.com
+https://popularwoodworking.com
+https://poshmark.com
+https://powerthesaurus.org
+https://poynter.org
+https://practicalecommerce.com
+https://practo.com
+https://precisionnutrition.com
+https://pressbooks.pub
+https://prevention.com
+https://prezi.com
+https://primark.com
+https://primevideo.com
+https://prnewswire.com
+https://pro-football-reference.com
+https://profootballfocus.com
+https://profootballtalk.com
+https://project-syndicate.org
+https://prokerala.com
+https://prom.ua
+https://propertyshark.com
+https://propublica.org
+https://protocol.com
+https://prtimes.jp
+https://psu.edu
+https://psychcentral.com
+https://psychologytoday.com
+https://publicbooks.org
+https://publishersweekly.com
+https://punchbowl.news
+https://punchdrink.com
+https://purdue.edu
+https://purexbox.com
+https://pushsquare.com
+https://pymnts.com
+https://python.org
+https://quantamagazine.org
+https://quillbot.com
+https://quillette.com
+https://quizlet.com
+https://quora.com
+https://ra.co
+https://racer.com
+https://radio-canada.ca
+https://radiofrance.fr
+https://radiotimes.com
+https://rae.es
+https://railwaygazette.com
+https://rajasthan.gov.in
+https://rakuten.com
+https://ranker.com
+https://rarediseases.org
+https://rateyourmusic.com
+https://rd.com
+https://readingrockets.org
+https://realclearpolitics.com
+https://realestate.com.au
+https://realsimple.com
+https://realtor.com
+https://recipetineats.com
+https://redbubble.com
+https://reddit.com
+https://redfin.com
+https://redhat.com
+https://reference.com
+https://refinery29.com
+https://rei.com
+https://remodelista.com
+https://repairpal.com
+https://repricerexpress.com
+https://repubblica.it
+https://researchgate.net
+https://restaurantguru.com
+https://restofworld.org
+https://retaildive.com
+https://reuters.com
+https://reverso.net
+https://reviewed.com
+https://revzilla.com
+https://rgs.org
+https://rhs.org.uk
+https://ricksteves.com
+https://ridermagazine.com
+https://rightmove.co.uk
+https://rijksmuseum.nl
+https://ring.com
+https://roadandtrack.com
+https://roads-and-kingdoms.com
+https://roadtrippers.com
+https://robbreport.com
+https://roblox.com
+https://robotics.org
+https://rocketreach.co
+https://rockler.com
+https://rockpapershotgun.com
+https://rogerebert.com
+https://roku.com
+https://rollingstone.com
+https://rome2rio.com
+https://romper.com
+https://rottentomatoes.com
+https://roughguides.com
+https://rover.com
+https://rozetka.com.ua
+https://rt.com
+https://rtings.com
+https://runnersworld.com
+https://rutube.ru
+https://saastr.com
+https://safewise.com
+https://sagepub.com
+https://sahibinden.com
+https://sainsburys.co.uk
+https://salesforce.com
+https://saleshacker.com
+https://sallysbakingaddiction.com
+https://salon.com
+https://samsclub.com
+https://samsung.com
+https://saveur.com
+https://savvygardening.com
+https://sbnation.com
+https://schneier.com
+https://scholastic.com
+https://science.org
+https://sciencedaily.com
+https://sciencedirect.com
+https://sciencemag.org
+https://scientificamerican.com
+https://scmp.com
+https://scottscheapflights.com
+https://screenrant.com
+https://screwfix.com
+https://scribd.com
+https://searchengineland.com
+https://seat61.com
+https://seatguru.com
+https://secretflying.com
+https://secretldn.com
+https://security.org
+https://securityweek.com
+https://seekingalpha.com
+https://self.com
+https://seniorsmatter.com
+https://sequoiacap.com
+https://seriouseats.com
+https://service-public.fr
+https://service.gov.uk
+https://shabdkosh.com
+https://shacknews.com
+https://shape.com
+https://shazam.com
+https://shein.com
+https://shiksha.com
+https://shopee.co.id
+https://shopify.com
+https://shrm.org
+https://shutterstock.com
+https://si.com
+https://sidetracked.com
+https://sifted.eu
+https://siliconera.com
+https://simpleflying.com
+https://simplisafe.com
+https://simplyrecipes.com
+https://sitepoint.com
+https://skift.com
+https://skillshare.com
+https://skincancer.org
+https://skwigly.co.uk
+https://sky.com
+https://skyandtelescope.org
+https://skynews.com
+https://skyscanner.com
+https://skysports.com
+https://slack.com
+https://slashfilm.com
+https://slashgear.com
+https://slate.com
+https://slideshare.net
+https://smashingmagazine.com
+https://smh.com.au
+https://smilingmind.com.au
+https://smithhotels.com
+https://smithsonianmag.com
+https://smule.com
+https://smythstoys.com
+https://snopes.com
+https://snowboarder.com
+https://soapcentral.com
+https://soccerway.com
+https://socialmediaexaminer.com
+https://sofascore.com
+https://softonic.com
+https://sophos.com
+https://sortiraparis.com
+https://soundcloud.com
+https://southernliving.com
+https://space.com
+https://spanishdict.com
+https://spectator.co.uk
+https://spiceworks.com
+https://spiegel.de
+https://spin.com
+https://sportingnews.com
+https://sportsdirect.com
+https://sportskeeda.com
+https://spotify.com
+https://springer.com
+https://squarespace.com
+https://ssa.gov
+https://stackexchange.com
+https://stackoverflow.com
+https://standard.co.uk
+https://stanford.edu
+https://stardewvalleywiki.com
+https://state.gov
+https://statista.com
+https://statnews.com
+https://steamcommunity.com
+https://steampowered.com
+https://stereogum.com
+https://stern.de
+https://stlouisfed.org
+https://straitstimes.com
+https://stratechery.com
+https://stringsmagazine.com
+https://stripe.com
+https://studocu.com
+https://study.com
+https://studysmarter.co.uk
+https://studyx.ai
+https://subito.it
+https://substack.com
+https://sueddeutsche.de
+https://superpages.com
+https://superuser.com
+https://surfer.com
+https://swimmingworldmagazine.com
+https://t-online.de
+https://t.me
+https://tabelog.com
+https://tablethotels.com
+https://tandfonline.com
+https://tapas.io
+https://tarabrach.com
+https://target.com
+https://tass.com
+https://taste.com.au
+https://tasteofhome.com
+https://tastingtable.com
+https://tate.org.uk
+https://tcj.com
+https://teacherspayteachers.com
+https://teamtreehouse.com
+https://tech.eu
+https://techhive.com
+https://technologyreview.com
+https://techradar.com
+https://techtarget.com
+https://ted.com
+https://telegraph.co.uk
+https://tempo.co
+https://temu.com
+https://tennis.com
+https://tenor.com
+https://terra.com.br
+https://tesco.com
+https://tesla.com
+https://teslarati.com
+https://testbook.com
+https://texas.gov
+https://the-next-web.com
+https://the-race.com
+https://the-scientist.com
+https://the-sun.com
+https://theage.com.au
+https://theamericanscholar.org
+https://theartnewspaper.com
+https://theathletic.com
+https://theatlantic.com
+https://theawl.com
+https://theb1m.com
+https://thebaffler.com
+https://theblockcrypto.com
+https://thebump.com
+https://theconversation.com
+https://thecraftsy.com
+https://theculturetrip.com
+https://thedefiant.io
+https://thedodo.com
+https://thedrive.com
+https://theenglishgarden.co.uk
+https://thefreedictionary.com
+https://thegamer.com
+https://theglobeandmail.com
+https://theguardian.com
+https://thehackernews.com
+https://thehill.com
+https://thehindu.com
+https://theinformation.com
+https://theintercept.com
+https://thejakartapost.com
+https://thekitchn.com
+https://theknot.com
+https://thelancet.com
+https://themarshallproject.org
+https://themighty.com
+https://themillions.com
+https://themirror.com
+https://themotleyfool.com
+https://themoviedb.org
+https://themreport.com
+https://themuse.com
+https://thenationalrealestateinvestor.com
+https://theoutbound.com
+https://theparisreview.org
+https://thephoblographer.com
+https://thepioneerwoman.com
+https://thepointmag.com
+https://thepointsguy.com
+https://therange.co.uk
+https://thesaurus.com
+https://thesavvybackpacker.com
+https://theschooloflife.com
+https://thesimpledollar.com
+https://thespruce.com
+https://thesprucecrafts.com
+https://thespruceeats.com
+https://thesprucepets.com
+https://thestage.co.uk
+https://thestreet.com
+https://thesun.co.uk
+https://thetimes.com
+https://theverge.com
+https://theviolinchannel.com
+https://thewhiskeywash.com
+https://thisiscolossal.com
+https://thisoldhouse.com
+https://thoughtco.com
+https://threads.com
+https://threatpost.com
+https://thriftytraveler.com
+https://thrillist.com
+https://ticketmaster.com
+https://tiktok.com
+https://time.com
+https://timeanddate.com
+https://timeout.com
+https://timesnownews.com
+https://tinybuddha.com
+https://tistory.com
+https://tkmaxx.com
+https://tlnt.com
+https://tn.gov
+https://today.com
+https://todaysparent.com
+https://todoist.com
+https://tokopedia.com
+https://tomsguide.com
+https://tomshardware.com
+https://topgear.com
+https://tor.com
+https://toucharcade.com
+https://towardsdatascience.com
+https://townandcountrymag.com
+https://tractorsupply.com
+https://tradingeconomics.com
+https://tradingview.com
+https://transfermarkt.com
+https://travelandleisure.com
+https://travelocity.com
+https://traveloka.com
+https://travelpulse.com
+https://travelweekly.com
+https://trello.com
+https://trendyol.com
+https://tribunnews.com
+https://tricycle.org
+https://trip.com
+https://tripadvisor.com
+https://trivago.com
+https://trulia.com
+https://trustpilot.com
+https://tsa.gov
+https://ttgmedia.com
+https://tuasaude.com
+https://tui.co.uk
+https://tumblr.com
+https://tureng.com
+https://tutsplus.com
+https://tvguide.com
+https://tvinsider.com
+https://tvtropes.org
+https://twilio.com
+https://twitch.tv
+https://twitter.com
+https://ubereats.com
+https://ucdavis.edu
+https://udacity.com
+https://udemy.com
+https://udn.com
+https://uefa.com
+https://ufc.com
+https://ufl.edu
+https://ukr.net
+https://uli.org
+https://ulta.com
+https://ultimate-guitar.com
+https://ultimatemotorcycling.com
+https://umich.edu
+https://umn.edu
+https://un.org
+https://unacademy.com
+https://unam.mx
+https://unclutterer.com
+https://unesco.org
+https://uniqlo.com
+https://universetoday.com
+https://unlockfood.ca
+https://unsplash.com
+https://uol.com.br
+https://upcomer.com
+https://upenn.edu
+https://upgradedpoints.com
+https://upi.com
+https://uptodown.com
+https://urbandictionary.com
+https://usa.gov
+https://usatoday.com
+https://uscis.gov
+https://usda.gov
+https://usembassy.gov
+https://usgs.gov
+https://ushmm.org
+https://usmagazine.com
+https://usnews.com
+https://usps.com
+https://utah.gov
+https://utexas.edu
+https://va.gov
+https://variety.com
+https://vatican.va
+https://vecteezy.com
+https://vectorstock.com
+https://vedantu.com
+https://vercel.com
+https://verizon.com
+https://verywellfit.com
+https://verywellhealth.com
+https://verywellmind.com
+https://vetstreet.com
+https://vg247.com
+https://viator.com
+https://vice.com
+https://vietnam.vn
+https://viewfromthewing.com
+https://vimeo.com
+https://vinepair.com
+https://virgilio.it
+https://virginia.gov
+https://vivint.com
+https://vk.com
+https://vmware.com
+https://vocabulary.com
+https://vocal.media
+https://vogue.com
+https://vox.com
+https://vrbo.com
+https://vulture.com
+https://w3schools.com
+https://wa.gov
+https://walgreens.com
+https://walmart.com
+https://wanderlog.com
+https://washingtonpost.com
+https://wattpad.com
+https://wayfair.com
+https://waze.com
+https://weather.com
+https://weblio.jp
+https://webmd.com
+https://website-files.com
+https://webtoons.com
+https://weebly.com
+https://weforum.org
+https://wellandgood.com
+https://welt.de
+https://wendywutours.com.au
+https://wesleyanargus.com
+https://whattoexpect.com
+https://wheree.com
+https://whirlpool.com
+https://who.int
+https://whowhatwear.com
+https://wikidata.org
+https://wikihow.com
+https://wikimedia.org
+https://wikipedia.org
+https://wikivoyage.org
+https://wikiwand.com
+https://wiktionary.org
+https://wiley.com
+https://winefolly.com
+https://winemag.com
+https://wired.com
+https://wisc.edu
+https://wise.com
+https://wisegeek.com
+https://womenshealthmag.com
+https://wonderopolis.org
+https://wondershare.com
+https://woodmagazine.com
+https://woodsmith.com
+https://woodworkersjournal.com
+https://wordhippo.com
+https://wordnik.com
+https://wordpress.com
+https://wordreference.com
+https://wordsmyth.net
+https://wordwall.net
+https://workable.com
+https://workaway.info
+https://world-architects.com
+https://world.rugby
+https://worldatlas.com
+https://worldbank.org
+https://worldwildlife.org
+https://wrc.com
+https://wsj.com
+https://wwd.com
+https://www.nhs.uk
+https://wwwaluxurytravelblog.com
+https://x.com
+https://xbox.com
+https://xinhuanet.com
+https://yahoo.com
+https://yale.edu
+https://yaleclimateconnections.org
+https://yandex.ru
+https://yardbarker.com
+https://ycombinator.com
+https://yell.com
+https://yellowpages.com
+https://yelp.com
+https://yogajournal.com
+https://yomiuri.co.jp
+https://youm7.com
+https://yourdictionary.com
+https://yourmechanic.com
+https://youtube.com
+https://zapier.com
+https://zara.com
+https://zdnet.com
+https://zendesk.com
+https://zerotothree.org
+https://zillow.com
+https://ziprecruiter.com
+https://zoominfo.com
+
+
+
+================================================
+File: fix_csv.py
+================================================
+# fix_csv.py
+import csv
+
+input_filename = 'corporate.csv'
+output_filename = 'corporate_fixed.csv'
+
+print(f"Reading from {input_filename} and writing to {output_filename}...")
+
+with open(input_filename, 'r', newline='') as infile, \
+        open(output_filename, 'w', newline='') as outfile:
+
+    reader = csv.reader(infile)
+    writer = csv.writer(outfile)
+
+    for row in reader:
+        if row:  # Make sure row is not empty
+            domain = row[0]
+            if not domain.startswith('http'):
+                # Create a full URL
+                full_url = f'https://{domain}'
+                writer.writerow([full_url])  # write the new full URL
+            else:
+                # write the original row if it's already a URL
+                writer.writerow(row)
+
+print("\nDone! A new file 'corporate_fixed.csv' has been created.")
+print("Now, replace the old file with the new one:")
+print("  mv corporate_fixed.csv corporate.csv")
 
 
 
@@ -1920,6 +1957,7 @@ pandas
 numpy
 joblib
 lightgbm # Important: joblib needs this to load the booster object
+psutil # NEW: For system resource monitoring
 
 # Web Scraping
 requests
@@ -5305,6 +5343,80 @@ if __name__ == "__main__":
 
 
 ================================================
+File: logs/worker_performance.jsonl
+================================================
+{"timestamp": "2025-07-09 18:31:17,095", "level": "INFO", "message": "--- Starting BlogSpy Worker ---", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:31:17,419", "level": "INFO", "message": "Model loaded successfully.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:31:17,521", "level": "DEBUG", "message": "Starting new worker cycle", "logger_name": "worker", "event": "cycle_start", "performance": {"cpu_percent": 19.0, "memory_rss_mb": 188.93}}
+{"timestamp": "2025-07-09 18:31:26,016", "level": "INFO", "message": "Fetched 2 crawling jobs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:31:28,679", "level": "INFO", "message": "[CRAWL] Starting: https://www.joshwcomeau.com/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:31:30,319", "level": "DEBUG", "message": "Crawl insertion plan", "logger_name": "worker", "event": "crawl_task", "url_id": 1, "url": "https://www.joshwcomeau.com/", "insert_stats": {"irrelevant": 0, "pending_crawl": 33, "pending_classification": 8}}
+{"timestamp": "2025-07-09 18:31:31,750", "level": "INFO", "message": "\u2705 Crawl complete for https://www.joshwcomeau.com/. Added 41 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:31:34,210", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:31:37,642", "level": "DEBUG", "message": "Crawl insertion plan", "logger_name": "worker", "event": "crawl_task", "url_id": 2, "url": "https://jvns.ca/", "insert_stats": {"irrelevant": 0, "pending_crawl": 615, "pending_classification": 6}}
+{"timestamp": "2025-07-09 18:31:39,173", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/. Added 621 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:31:40,351", "level": "DEBUG", "message": "Starting new worker cycle", "logger_name": "worker", "event": "cycle_start", "performance": {"cpu_percent": 2.6, "memory_rss_mb": 199.06}}
+{"timestamp": "2025-07-09 18:31:41,172", "level": "INFO", "message": "Fetched 5 crawling jobs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:31:44,861", "level": "INFO", "message": "[CRAWL] Starting: https://www.joshwcomeau.com/react/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:19,752", "level": "INFO", "message": "--- Starting BlogSpy Worker ---", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:20,221", "level": "INFO", "message": "Model loaded successfully.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:20,322", "level": "DEBUG", "message": "Starting new worker cycle", "logger_name": "worker", "event": "cycle_start", "performance": {"cpu_percent": 25.0, "memory_rss_mb": 189.02}}
+{"timestamp": "2025-07-09 18:40:27,518", "level": "INFO", "message": "Fetched 3 crawling jobs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:30,386", "level": "INFO", "message": "[CRAWL] Starting: https://www.joshwcomeau.com/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:30,994", "level": "WARNING", "message": "\u26a0\ufe0f Detected Client-Side Rendering for https://www.joshwcomeau.com/. Skipping crawl, marking as completed.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:32,842", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:36,790", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/. Added 621 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:38,433", "level": "INFO", "message": "[CRAWL] Starting: https://goyalayus.github.io/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:40,892", "level": "INFO", "message": "\u2705 Crawl complete for https://goyalayus.github.io/. Added 13 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:41,957", "level": "DEBUG", "message": "Starting new worker cycle", "logger_name": "worker", "event": "cycle_start", "performance": {"cpu_percent": 3.8, "memory_rss_mb": 199.77}}
+{"timestamp": "2025-07-09 18:40:42,680", "level": "INFO", "message": "Fetched 5 crawling jobs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:46,371", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2014/07/17/ruby-rogues/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:49,636", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2014/07/17/ruby-rogues/. Added 2 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:51,275", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2019/10/01/zine-revenue-2019/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:53,732", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2019/10/01/zine-revenue-2019/. Added 1 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:55,780", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2022/04/12/a-list-of-new-ish--command-line-tools/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:58,033", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2022/04/12/a-list-of-new-ish--command-line-tools/. Added 73 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:53:50,756", "level": "INFO", "message": "--- Starting BlogSpy Worker ---", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:53:51,132", "level": "INFO", "message": "Model loaded successfully.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:53:51,233", "level": "DEBUG", "message": "Starting new worker cycle", "logger_name": "worker", "event": "cycle_start", "performance": {"cpu_percent": 17.3, "memory_rss_mb": 187.6}}
+{"timestamp": "2025-07-09 18:53:59,503", "level": "INFO", "message": "Fetched 3 crawling jobs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:02,370", "level": "INFO", "message": "[CRAWL] Starting: https://www.joshwcomeau.com/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:04,027", "level": "WARNING", "message": "\u26a0\ufe0f Detected CSR for https://www.joshwcomeau.com/. Skipping crawl.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:05,851", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:12,629", "level": "DEBUG", "message": "Created 621 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 2, "url": "https://jvns.ca/", "edges_created": 621}
+{"timestamp": "2025-07-09 18:54:12,629", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/. Added 621 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:14,656", "level": "INFO", "message": "[CRAWL] Starting: https://goyalayus.github.io/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:18,937", "level": "DEBUG", "message": "Created 13 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 3, "url": "https://goyalayus.github.io/", "edges_created": 13}
+{"timestamp": "2025-07-09 18:54:18,938", "level": "INFO", "message": "\u2705 Crawl complete for https://goyalayus.github.io/. Added 13 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:20,286", "level": "DEBUG", "message": "Starting new worker cycle", "logger_name": "worker", "event": "cycle_start", "performance": {"cpu_percent": 5.0, "memory_rss_mb": 198.1}}
+{"timestamp": "2025-07-09 18:54:20,930", "level": "INFO", "message": "Fetched 5 crawling jobs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:24,890", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2015/07/04/bootstrap-confidence-intervals/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:29,196", "level": "DEBUG", "message": "Created 2 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 10, "url": "https://jvns.ca/blog/2015/07/04/bootstrap-confidence-intervals/", "edges_created": 2}
+{"timestamp": "2025-07-09 18:54:29,196", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2015/07/04/bootstrap-confidence-intervals/. Added 2 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:31,244", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2014/10/08/how-to-set-up-a-blog-in-5-minutes/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:34,505", "level": "DEBUG", "message": "Created 12 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 11, "url": "https://jvns.ca/blog/2014/10/08/how-to-set-up-a-blog-in-5-minutes/", "edges_created": 12}
+{"timestamp": "2025-07-09 18:54:34,506", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2014/10/08/how-to-set-up-a-blog-in-5-minutes/. Added 12 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:36,568", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2021/01/09/day-35--launching-my-vms-more-reliably/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:40,868", "level": "DEBUG", "message": "Created 2 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 12, "url": "https://jvns.ca/blog/2021/01/09/day-35--launching-my-vms-more-reliably/", "edges_created": 2}
+{"timestamp": "2025-07-09 18:54:40,868", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2021/01/09/day-35--launching-my-vms-more-reliably/. Added 2 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:42,714", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2019/06/23/a-few-debugging-resources/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:46,602", "level": "DEBUG", "message": "Created 18 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 13, "url": "https://jvns.ca/blog/2019/06/23/a-few-debugging-resources/", "edges_created": 18}
+{"timestamp": "2025-07-09 18:54:46,602", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2019/06/23/a-few-debugging-resources/. Added 18 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:48,241", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2015/03/06/you-can-choose-who-submits-talks-to-your-conference/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:52,337", "level": "DEBUG", "message": "Created 4 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 14, "url": "https://jvns.ca/blog/2015/03/06/you-can-choose-who-submits-talks-to-your-conference/", "edges_created": 4}
+{"timestamp": "2025-07-09 18:54:52,337", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2015/03/06/you-can-choose-who-submits-talks-to-your-conference/. Added 4 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:53,256", "level": "DEBUG", "message": "Starting new worker cycle", "logger_name": "worker", "event": "cycle_start", "performance": {"cpu_percent": 6.3, "memory_rss_mb": 198.23}}
+{"timestamp": "2025-07-09 18:54:54,181", "level": "INFO", "message": "Fetched 5 crawling jobs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:54:57,460", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2018/08/05/new-zine--bite-size-command-line/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:55:01,039", "level": "DEBUG", "message": "Created 4 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 15, "url": "https://jvns.ca/blog/2018/08/05/new-zine--bite-size-command-line/", "edges_created": 4}
+{"timestamp": "2025-07-09 18:55:01,039", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2018/08/05/new-zine--bite-size-command-line/. Added 4 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:55:02,715", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2013/10/24/day-16-gzip-plus-poetry-equals-awesome/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:55:07,490", "level": "DEBUG", "message": "Created 9 edges in the link graph.", "logger_name": "worker", "event": "crawl_task", "url_id": 16, "url": "https://jvns.ca/blog/2013/10/24/day-16-gzip-plus-poetry-equals-awesome/", "edges_created": 9}
+{"timestamp": "2025-07-09 18:55:07,490", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2013/10/24/day-16-gzip-plus-poetry-equals-awesome/. Added 9 new URLs.", "logger_name": "worker"}
+
+
+
+================================================
 File: outputs/models/lgbm_final_model.joblib
 ================================================
 [Non-text file]
@@ -5400,21 +5512,16 @@ File: src/config.py
 import pathlib
 
 # --- Project Root ---
-# This ensures paths work correctly when run from anywhere
 ROOT_DIR = pathlib.Path(__file__).parent.parent
 
+# --- Log Directory ---
+LOGS_DIR = ROOT_DIR / "logs"
+
 # --- Output/Model Directory ---
-# The predict.py script uses this to find the .joblib file
 OUTPUT_DIR = ROOT_DIR / "outputs"
 MODELS_DIR = OUTPUT_DIR / "models"
 
-# --- Label Mapping ---
-# Used to translate the model's output (0 or 1) into a readable label
-LABEL_MAPPING = {"corporate_seo": 0, "personal_blog": 1}
-ID_TO_LABEL = {v: k for k, v in LABEL_MAPPING.items()}
-
 # --- Web Request Parameters ---
-# Used by predict.py when fetching website content
 REQUEST_TIMEOUT = 10
 REQUEST_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -5428,19 +5535,17 @@ File: src/database.py
 # src/database.py
 
 from sqlalchemy import create_engine, Column, Integer, String, Text, Float, DateTime, Enum, PrimaryKeyConstraint
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import sessionmaker, declarative_base, Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.sql import func
 import enum
-from urllib.parse import urlparse  # <-- NEW
+from urllib.parse import urlparse
 
 from src.settings import settings
 
 engine = create_engine(settings.DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
-
-# --- MODIFIED ENUMS ---
 
 
 class CrawlStatus(str, enum.Enum):
@@ -5452,46 +5557,37 @@ class CrawlStatus(str, enum.Enum):
     irrelevant = 'irrelevant'
     failed = 'failed'
 
-# <-- NEW ENUM -->
-
 
 class RenderingType(str, enum.Enum):
     SSR = 'SSR'
     CSR = 'CSR'
     UNKNOWN = 'UNKNOWN'
 
-# --- MODIFIED URL TABLE ---
+# --- URL TABLE (SIMPLIFIED) ---
 
 
 class URL(Base):
     __tablename__ = 'urls'
-
     id = Column(Integer, primary_key=True, index=True)
     url = Column(Text, unique=True, nullable=False)
-    netloc = Column(Text, nullable=False, index=True)  # <-- NEW
+    netloc = Column(Text, nullable=False, index=True)
     status = Column(Enum(CrawlStatus, name="crawl_status"),
                     nullable=False, default=CrawlStatus.pending_classification)
     rendering = Column(Enum(RenderingType, name="rendering_type"),
-                       nullable=False, default=RenderingType.UNKNOWN)  # <-- NEW
+                       nullable=False, default=RenderingType.UNKNOWN)
     content = Column(Text)
-    title = Column(Text)  # <-- NEW
-    description = Column(Text)  # <-- NEW
-    classification = Column(Text)
-    confidence = Column(Float)
+    title = Column(Text)
+    description = Column(Text)
     error_message = Column(Text)
     processed_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True),
                         nullable=False, server_default=func.now())
 
-# <-- NEW TABLE FOR PAGERANK -->
-
 
 class URLEdge(Base):
     __tablename__ = 'url_edges'
-
     source_url_id = Column(Integer, nullable=False)
     dest_url_id = Column(Integer, nullable=False)
-
     __table_args__ = (PrimaryKeyConstraint('source_url_id', 'dest_url_id'),)
 
 
@@ -5502,35 +5598,19 @@ def get_db():
     finally:
         db.close()
 
-# --- MODIFIED BULK INSERT FUNCTION ---
 
-
-def bulk_insert_urls(db_session, url_list: list[str]):
-    """
-    Inserts multiple URLs into the database, ignoring any that already exist.
-    It now also parses and stores the 'netloc' for each URL.
-    """
+def bulk_insert_urls(db_session: Session, url_list: list[str]):
+    """Inserts multiple URLs with default 'pending_classification' status."""
     if not url_list:
         return
-
-    insert_values = []
-    for url in url_list:
-        try:
-            # Parse the netloc on creation for the fast-path logic
-            netloc = urlparse(url).netloc
-            insert_values.append({"url": url, "netloc": netloc})
-        except Exception:
-            # Silently skip malformed URLs
-            continue
-
+    insert_values = [{"url": url, "netloc": urlparse(
+        url).netloc} for url in url_list if urlparse(url).netloc]
     if not insert_values:
         return
-
-    stmt = pg_insert(URL).values(insert_values)
-    # Use on_conflict_do_nothing to ignore URLs that already exist in the table
-    stmt = stmt.on_conflict_do_nothing(index_elements=['url'])
+    stmt = pg_insert(URL).values(
+        insert_values).on_conflict_do_nothing(index_elements=['url'])
     db_session.execute(stmt)
-    db_session.commit()
+    # Commit is handled by the calling task
 
 
 
@@ -5649,7 +5729,7 @@ File: src/predict.py
 ================================================
 # src/predict.py
 
-from src.utils import get_logger
+from src.utils import setup_logging
 from src.config import MODELS_DIR, ID_TO_LABEL, REQUEST_TIMEOUT, REQUEST_HEADERS
 from src.feature_engineering import extract_url_features, extract_structural_features, extract_content_features
 import sys
@@ -5661,27 +5741,35 @@ import requests
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 import warnings
 import scipy.sparse as sp
-import numpy as np
+import time
 
 # --- Path and Logger Setup ---
 project_root = pathlib.Path(__file__).parent.parent
 sys.path.append(str(project_root))
-logger = get_logger(__name__)
+logger = setup_logging('predict')
 
 
 def fetch_and_parse(url: str) -> dict | None:
     """ Fetches and parses a URL, returning a dictionary of contents. """
     logger.info(f"Fetching content from {url}...")
+    fetch_start_time = time.time()
     try:
         response = requests.get(
             url, timeout=REQUEST_TIMEOUT, headers=REQUEST_HEADERS)
         response.raise_for_status()
         html_content = response.text
+
         warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
         soup = BeautifulSoup(html_content, 'lxml')
         for script_or_style in soup(['script', 'style']):
             script_or_style.decompose()
         text_content = ' '.join(soup.stripped_strings)
+
+        fetch_duration = time.time() - fetch_start_time
+        logger.debug("Content fetched successfully", extra_data={
+            "event": "fetch_success", "url": url, "duration_s": fetch_duration
+        })
+
         return {"url": url, "html_content": html_content, "text_content": text_content}
     except requests.RequestException as e:
         logger.error(f"Failed to fetch or process {url}: {e}")
@@ -5695,21 +5783,16 @@ def main():
     parser = argparse.ArgumentParser(description="Classify websites.")
     parser.add_argument('urls', nargs='+',
                         help="One or more full URLs to classify")
-    parser.add_argument('--model', type=str, default='main', choices=[
-                        'main', 'content_only', 'url_only'], help="The model to use: 'main', 'content_only', or 'url_only'.")
+    parser.add_argument('--model', type=str, default='main',
+                        help="The model to use (e.g., 'main').")
     args = parser.parse_args()
 
-    model_name_map = {
-        'main': 'lgbm_final_model.joblib',
-        'content_only': 'lgbm_content_only_pipeline.joblib',
-        'url_only': 'url_only_pipeline.joblib'
-    }
-    model_filename = model_name_map[args.model]
+    model_filename = 'lgbm_final_model.joblib'
     model_path = MODELS_DIR / model_filename
 
     if not model_path.exists():
         logger.error(
-            f"Model file not found at {model_path}. Please train it first or place it in the correct directory.")
+            f"Model file not found at {model_path}. Please ensure it is in the correct directory.")
         sys.exit(1)
 
     logger.info(f"Loading model: {model_filename}...")
@@ -5720,52 +5803,41 @@ def main():
         print("-" * 50)
         logger.info(f"Analyzing URL: {url}")
 
-        if args.model == 'url_only':
-            site_data = {"url": url}
-        else:
-            site_data = fetch_and_parse(url)
-            if site_data is None:
-                print(f"  ❌ Could not analyze {url}. Skipping.")
-                continue
+        site_data = fetch_and_parse(url)
+        if site_data is None:
+            print(f"  ❌ Could not analyze {url}. Skipping.")
+            continue
 
         try:
-            if args.model == 'main':
-                vectorizer = artifact['vectorizer']
-                model = artifact['model']
+            predict_start_time = time.time()
+            vectorizer = artifact['vectorizer']
+            model = artifact['model']
 
-                # Create a DataFrame from the fetched data
-                df = pd.DataFrame([site_data])
+            df = pd.DataFrame([site_data])
 
-                # Extract all features
-                txt_features = vectorizer.transform(
-                    df["text_content"].fillna(""))
-                url_features = extract_url_features(
-                    df["url"]).to_numpy(dtype="float32")
-                structural_features = extract_structural_features(
-                    df["html_content"]).to_numpy(dtype="float32")
-                content_features = extract_content_features(
-                    df["text_content"]).to_numpy(dtype="float32")
+            txt_features = vectorizer.transform(df["text_content"].fillna(""))
+            url_features = extract_url_features(
+                df["url"]).to_numpy(dtype="float32")
+            structural_features = extract_structural_features(
+                df["html_content"]).to_numpy(dtype="float32")
+            content_features = extract_content_features(
+                df["text_content"]).to_numpy(dtype="float32")
 
-                # Combine features into a single sparse matrix for the model
-                features = sp.hstack([
-                    txt_features,
-                    sp.csr_matrix(url_features),
-                    sp.csr_matrix(structural_features),
-                    sp.csr_matrix(content_features)
-                ], format="csr")
+            features = sp.hstack([
+                txt_features, sp.csr_matrix(url_features),
+                sp.csr_matrix(structural_features), sp.csr_matrix(
+                    content_features)
+            ], format="csr")
 
-                probabilities = model.predict(features)
-                prediction_id = (probabilities > 0.5).astype(int)[0]
-                confidence = probabilities[0] if prediction_id == 1 else 1 - \
-                    probabilities[0]
+            probabilities = model.predict(features)
+            prediction_id = (probabilities > 0.5).astype(int)[0]
+            confidence = probabilities[0] if prediction_id == 1 else 1 - \
+                probabilities[0]
 
-            else:  # content_only and url_only models are full sklearn pipelines
-                pipeline = artifact
-                predict_input = [site_data['url']] if args.model == 'url_only' else [
-                    site_data['text_content']]
-                prediction_id = pipeline.predict(predict_input)[0]
-                probabilities = pipeline.predict_proba(predict_input)[0]
-                confidence = probabilities[prediction_id]
+            predict_duration = time.time() - predict_start_time
+            logger.debug("Prediction complete", extra_data={
+                "event": "predict_success", "url": url, "duration_s": predict_duration
+            })
 
             label = ID_TO_LABEL[prediction_id]
             print(f"\n✅ Results for: {url}")
@@ -5788,13 +5860,28 @@ if __name__ == "__main__":
 ================================================
 File: src/settings.py
 ================================================
+# src/settings.py
+import pathlib
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Define the root of your project
+# __file__ -> /path/to/project/src/settings.py
+# .parent -> /path/to/project/src
+# .parent -> /path/to/project
+PROJECT_ROOT = pathlib.Path(__file__).parent.parent
+
 
 class Settings(BaseSettings):
     """Loads configuration from environment variables."""
     DATABASE_URL: str
 
-    model_config = SettingsConfigDict(env_file='../.env', env_file_encoding='utf-8', extra='ignore')
+    model_config = SettingsConfigDict(
+        # Use the absolute path to the .env file
+        env_file=PROJECT_ROOT / '.env',
+        env_file_encoding='utf-8',
+        extra='ignore'
+    )
+
 
 settings = Settings()
 
@@ -5803,28 +5890,82 @@ settings = Settings()
 ================================================
 File: src/utils.py
 ================================================
-
 # src/utils.py
 
 import logging
 import sys
+import json
+from src.config import LOGS_DIR
 
 
-def get_logger(name: str) -> logging.Logger:
+class JsonFormatter(logging.Formatter):
     """
-    Configures and returns a logger with a standard format.
+    A robust JSON formatter that correctly handles the 'extra' dictionary.
     """
+
+    def format(self, record):
+        # Start with the basic attributes from the log record
+        log_object = {
+            "timestamp": self.formatTime(record, self.datefmt),
+            "level": record.levelname,
+            "message": record.getMessage(),
+            "logger_name": record.name,
+        }
+
+        # The 'extra' dictionary passed to the logger is stored in the record's __dict__.
+        # We need to extract our custom fields without including the standard ones.
+        standard_keys = {
+            'args', 'asctime', 'created', 'exc_info', 'exc_text', 'filename',
+            'funcName', 'levelname', 'levelno', 'lineno', 'message', 'module',
+            'msecs', 'msg', 'name', 'pathname', 'process', 'processName',
+            'relativeCreated', 'stack_info', 'thread', 'threadName'
+        }
+
+        # Add any key from the record's dict that is not a standard key.
+        # This is where our 'event', 'url_id', 'insert_stats', etc., will be.
+        for key, value in record.__dict__.items():
+            if key not in standard_keys:
+                log_object[key] = value
+
+        return json.dumps(log_object)
+
+
+def setup_logging(name: str) -> logging.Logger:
+    """
+    Configures and returns a logger with dual output:
+    1. A human-readable operational log (.log).
+    2. A machine-readable performance log (.jsonl).
+    """
+    LOGS_DIR.mkdir(exist_ok=True)
+
     logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
 
-    # Avoid adding handlers multiple times
-    if not logger.handlers:
-        handler = logging.StreamHandler(sys.stdout)
-        formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
+    if logger.handlers:
+        logger.handlers.clear()
+
+    # --- 1. Operational File Handler (Human-readable) ---
+    op_log_file = LOGS_DIR / f"{name}_operational.log"
+    op_handler = logging.FileHandler(op_log_file, mode='a')
+    op_handler.setLevel(logging.INFO)
+    op_formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    op_handler.setFormatter(op_formatter)
+    logger.addHandler(op_handler)
+
+    # --- 2. Performance File Handler (JSON for analysis) ---
+    perf_log_file = LOGS_DIR / f"{name}_performance.jsonl"
+    perf_handler = logging.FileHandler(perf_log_file, mode='a')
+    perf_handler.setLevel(logging.DEBUG)
+    perf_formatter = JsonFormatter()
+    perf_handler.setFormatter(perf_formatter)
+    logger.addHandler(perf_handler)
+
+    # --- 3. Console Handler (for immediate feedback) ---
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(op_formatter)
+    logger.addHandler(console_handler)
 
     return logger
 
@@ -5835,227 +5976,228 @@ File: src/worker.py
 ================================================
 # src/worker.py
 
+from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from src.config import MODELS_DIR, ID_TO_LABEL, REQUEST_TIMEOUT, REQUEST_HEADERS
+from src.config import MODELS_DIR, REQUEST_HEADERS
 from src.feature_engineering import extract_url_features, extract_structural_features, extract_content_features
-from src.database import SessionLocal, URL, CrawlStatus, RenderingType, URLEdge, bulk_insert_urls
-from src.utils import get_logger
+from src.database import SessionLocal, URL, URLEdge, CrawlStatus, RenderingType
+from src.utils import setup_logging
 import sys
 import pathlib
 import joblib
 import pandas as pd
 import requests
-from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 import warnings
 import scipy.sparse as sp
-import numpy as np
+import psutil
 import time
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
+from collections import defaultdict
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 
 project_root = pathlib.Path(__file__).parent.parent
 sys.path.append(str(project_root))
-
 
 MODEL_PATH = MODELS_DIR / 'lgbm_final_model.joblib'
 BATCH_SIZE = 5
 SLEEP_INTERVAL = 10
 PERSONAL_BLOG_LABEL = "PERSONAL_BLOG"
 
-logger = get_logger('worker')
+logger = setup_logging('worker')
+
+# ... (Helper functions get_performance_metrics, fetch_and_parse_content, extract_links, bulk_insert_with_status remain the same) ...
 
 
-def fetch_content(url: str) -> dict:
-    """
-    Fetches content and pre-parses it to extract key metadata along with
-    the BeautifulSoup object for further processing.
-    """
-    response = requests.get(url, timeout=REQUEST_TIMEOUT,
-                            headers=REQUEST_HEADERS)
+def get_performance_metrics():
+    return {"cpu_percent": psutil.cpu_percent(interval=0.1), "memory_rss_mb": round(psutil.Process().memory_info().rss / (1024 * 1024), 2)}
+
+
+def fetch_and_parse_content(url: str) -> dict:
+    response = requests.get(url, timeout=10, headers=REQUEST_HEADERS)
     response.raise_for_status()
-    html_content = response.text
-
-    warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
-    soup = BeautifulSoup(html_content, 'lxml')
-
-    title_tag = soup.find('title')
-    title = title_tag.get_text(strip=True) if title_tag else None
-
-    desc_tag = soup.find('meta', attrs={'name': 'description'})
-    description = desc_tag['content'].strip(
-    ) if desc_tag and desc_tag.get('content') else None
-
-    for script_or_style in soup(['script', 'style']):
-        script_or_style.decompose()
+    html = response.text
+    soup = BeautifulSoup(html, 'lxml')
+    is_csr = check_for_csr(soup)
+    if is_csr:
+        return {"is_csr": True, "soup": soup, "html_content": html}
+    title = (soup.find('title').get_text(strip=True)
+             ) if soup.find('title') else None
+    desc = soup.find('meta', attrs={'name': 'description'})
+    description = desc['content'].strip(
+    ) if desc and desc.get('content') else None
+    for s in soup(['script', 'style']):
+        s.decompose()
     text_content = ' '.join(soup.stripped_strings)
-
-    return {
-        "html_content": html_content,
-        "text_content": text_content,
-        "title": title,
-        "description": description,
-        "soup": soup
-    }
+    return {"is_csr": False, "html_content": html, "text_content": text_content, "title": title, "description": description, "soup": soup}
 
 
 def check_for_csr(soup: BeautifulSoup) -> bool:
-    """
-    Uses heuristics to check if a page is likely client-side rendered.
-    """
     if soup.find('div', id='root') or soup.find('div', id='app'):
-        body_text = soup.body.get_text(strip=True) if soup.body else ''
+        body_text = soup.body.get_text(
+            strip=True, separator=' ') if soup.body else ''
         if len(body_text) < 250:
             return True
+    if soup.find('template', attrs={'data-dgst': 'BAILOUT_TO_CLIENT_SIDE_RENDERING'}):
+        return True
     return False
 
 
-def extract_links_from_html(html_content: str, base_url: str) -> list[str]:
-    soup = BeautifulSoup(html_content, 'lxml')
+def extract_links(html, base_url):
     links = set()
-    parsed_base = urlparse(base_url)
-
-    for a_tag in soup.find_all('a', href=True):
-        href = a_tag['href'].strip()
-        if not href or href.startswith('#') or href.startswith('mailto:'):
+    for a in BeautifulSoup(html, 'lxml').find_all('a', href=True):
+        href = a['href'].strip()
+        if not href or href.startswith(('#', 'mailto:', 'javascript:')):
             continue
-
-        full_url = urljoin(base_url, href)
-        parsed_full = urlparse(full_url)
-
-        if parsed_full.scheme in ['http', 'https'] and parsed_full.netloc == parsed_base.netloc:
-            links.add(full_url)
-
+        try:
+            full_url = urljoin(base_url, href)
+            if urlparse(full_url).scheme in ['http', 'https']:
+                links.add(full_url)
+        except:
+            continue
     return list(links)
 
 
+def bulk_insert_with_status(db: Session, records: list[dict]):
+    if not records:
+        return
+    stmt = pg_insert(URL).values(
+        records).on_conflict_do_nothing(index_elements=['url'])
+    db.execute(stmt)
+
+
 def process_classification_task(db, url_record: URL, artifact: dict):
-    logger.info("[CLASSIFY] Processing {0}".format(url_record.url))
-
-    if url_record.netloc:
-        cached_decision = db.query(URL).filter(
-            URL.netloc == url_record.netloc,
-            URL.id != url_record.id,
-            URL.status.in_([CrawlStatus.completed, CrawlStatus.irrelevant])
-        ).first()
-
-        if cached_decision:
-            logger.info(
-                "⚡️ Domain fast-path hit for {0} based on {1}".format(url_record.url, cached_decision.url))
-            url_record.classification = cached_decision.classification
-            url_record.confidence = cached_decision.confidence
-            url_record.processed_at = datetime.now(timezone.utc)
-            url_record.error_message = "Fast-path decision based on url_id: {0}".format(
-                cached_decision.id)
-            url_record.title = cached_decision.title
-            url_record.description = cached_decision.description
-            url_record.rendering = cached_decision.rendering
-
-            if cached_decision.classification == PERSONAL_BLOG_LABEL.upper():
-                url_record.status = CrawlStatus.pending_crawl
-            else:
-                url_record.status = CrawlStatus.irrelevant
-
-            db.commit()
-            return
-
+    # This function remains the same and is correct.
+    logger.info(f"[CLASSIFY] Starting: {url_record.url}")
     try:
-        site_data = fetch_content(url_record.url)
-
-        is_csr = check_for_csr(site_data['soup'])
-        if is_csr:
-            # --- CORRECTED LINE ---
+        content = fetch_and_parse_content(url_record.url)
+        if content.get("is_csr"):
             logger.warning(
-                "Detected Client-Side Rendering for {0}. Marking as CSR.".format(url_record.url))
-            url_record.rendering = RenderingType.CSR
+                f"⚠️ Detected CSR for {url_record.url}. Marking as irrelevant.")
             url_record.status = CrawlStatus.irrelevant
-            url_record.classification = "CSR_APP"
-            url_record.processed_at = datetime.now(timezone.utc)
+            url_record.rendering = RenderingType.CSR
+            url_record.error_message = "Detected Client-Side Rendering"
             db.commit()
             return
-
         url_record.rendering = RenderingType.SSR
-        url_record.title = site_data.get('title')
-        url_record.description = site_data.get('description')
-
-        vectorizer, model = artifact['vectorizer'], artifact['model']
-        df = pd.DataFrame([{**site_data, "url": url_record.url}])
-
-        txt_features = vectorizer.transform(df["text_content"].fillna(""))
-        url_features = extract_url_features(
-            df["url"]).to_numpy(dtype="float32")
-        structural_features = extract_structural_features(
-            df["html_content"]).to_numpy(dtype="float32")
-        content_features = extract_content_features(
-            df["text_content"]).to_numpy(dtype="float32")
-
-        features = sp.hstack([txt_features, sp.csr_matrix(url_features), sp.csr_matrix(
-            structural_features), sp.csr_matrix(content_features)], format="csr")
-
-        probabilities = model.predict(features)
-        prediction_id = (probabilities > 0.5).astype(int)[0]
-        confidence = probabilities[0] if prediction_id == 1 else 1 - \
-            probabilities[0]
-        label = ID_TO_LABEL[prediction_id].upper()
-
-        url_record.classification = label
-        url_record.confidence = float(confidence)
+        df = pd.DataFrame([{**content, "url": url_record.url}])
+        txt_feat = artifact['vectorizer'].transform(
+            df["text_content"].fillna(""))
+        num_feat_df = pd.concat([extract_url_features(df['url']), extract_structural_features(
+            df['html_content']), extract_content_features(df['text_content'])], axis=1)
+        num_feat = sp.csr_matrix(num_feat_df.to_numpy(dtype="float32"))
+        features = sp.hstack([txt_feat, num_feat], format="csr")
+        is_personal_blog = (artifact['model'].predict(
+            features) > 0.5).astype(int)[0]
         url_record.processed_at = datetime.now(timezone.utc)
-
-        if label == PERSONAL_BLOG_LABEL.upper():
+        url_record.title = content.get('title')
+        url_record.description = content.get('description')
+        if is_personal_blog:
             url_record.status = CrawlStatus.pending_crawl
-            url_record.content = site_data['text_content']
+            url_record.content = content['text_content']
             logger.info(
-                "✅ Classified as PERSONAL_BLOG. Stored content and queued for crawling.")
+                f"✅ Classified as Personal Blog. Queued for crawling: {url_record.url}")
         else:
             url_record.status = CrawlStatus.irrelevant
-            url_record.content = None
-            logger.info(
-                "❌ Classified as {0}. Marked as irrelevant, content not stored.".format(label))
-
+            logger.info(f"❌ Classified as Irrelevant: {url_record.url}")
     except Exception as e:
-        logger.error("Failed to classify {0}: {1}".format(
-            url_record.url, e), exc_info=False)
+        logger.error(
+            f"Failed to classify {url_record.url}: {e}", exc_info=False)
         url_record.status = CrawlStatus.failed
         url_record.error_message = str(e)
-        url_record.content = None
-
     db.commit()
 
 
 def process_crawl_task(db, url_record: URL):
-    logger.info("[CRAWL] Processing {0}".format(url_record.url))
+    logger.info(f"[CRAWL] Starting: {url_record.url}")
+    log_extra = {"event": "crawl_task",
+                 "url_id": url_record.id, "url": url_record.url}
     try:
-        site_data = fetch_content(url_record.url)
-        html_content = site_data['html_content']
+        content = fetch_and_parse_content(url_record.url)
+        if content.get("is_csr"):
+            logger.warning(
+                f"⚠️ Detected CSR for {url_record.url}. Skipping crawl.")
+            url_record.status = CrawlStatus.completed
+            url_record.rendering = RenderingType.CSR
+            url_record.error_message = "Detected CSR during crawl"
+            db.commit()
+            return
 
-        new_links = extract_links_from_html(html_content, url_record.url)
+        url_record.rendering = RenderingType.SSR
+        url_record.title = content.get('title')
+        url_record.description = content.get('description')
+        url_record.content = content.get('text_content')
+
+        new_links = extract_links(content['html_content'], url_record.url)
+
         if new_links:
-            bulk_insert_urls(db, new_links)
+            # ... (fast-path logic for inserting into 'urls' table is the same) ...
+            links_by_netloc = defaultdict(list)
+            for link in new_links:
+                if nloc := urlparse(link).netloc:
+                    links_by_netloc[nloc].append(link)
+            existing_urls = {u.url for u in db.query(
+                URL.url).filter(URL.url.in_(new_links))}
+            personal_statuses = {CrawlStatus.pending_crawl,
+                                 CrawlStatus.crawling, CrawlStatus.completed}
+            domain_decisions_q = db.query(URL.netloc, URL.status).filter(URL.netloc.in_(links_by_netloc.keys(
+            )), URL.status.in_(personal_statuses | {CrawlStatus.irrelevant})).distinct(URL.netloc)
+            domain_decisions = {
+                res.netloc: res.status for res in domain_decisions_q}
+            to_insert_irrelevant, to_insert_pending_crawl, to_insert_pending_classification = [], [], []
+            for netloc, links in links_by_netloc.items():
+                for link in links:
+                    if link in existing_urls:
+                        continue
+                    if netloc == url_record.netloc:
+                        to_insert_pending_crawl.append(
+                            {"url": link, "netloc": netloc, "status": CrawlStatus.pending_crawl})
+                    elif netloc in domain_decisions:
+                        decision = domain_decisions[netloc]
+                        if decision == CrawlStatus.irrelevant:
+                            to_insert_irrelevant.append(
+                                {"url": link, "netloc": netloc, "status": CrawlStatus.irrelevant})
+                        elif decision in personal_statuses:
+                            to_insert_pending_crawl.append(
+                                {"url": link, "netloc": netloc, "status": CrawlStatus.pending_crawl})
+                    else:
+                        to_insert_pending_classification.append(
+                            {"url": link, "netloc": netloc, "status": CrawlStatus.pending_classification})
+
+            bulk_insert_with_status(db, to_insert_irrelevant)
+            bulk_insert_with_status(db, to_insert_pending_classification)
+            bulk_insert_with_status(db, to_insert_pending_crawl)
+            db.flush()  # Ensure the new URLs are available for querying IDs
+
+            # *** THE FIX IS HERE: Create the graph edges ***
+            all_inserted_links = [r['url'] for r in to_insert_irrelevant +
+                                  to_insert_pending_crawl + to_insert_pending_classification]
+            if all_inserted_links:
+                dest_ids_q = db.query(URL.id).filter(
+                    URL.url.in_(all_inserted_links))
+                dest_ids = [res.id for res in dest_ids_q]
+                edge_values = [{"source_url_id": url_record.id,
+                                "dest_url_id": dest_id} for dest_id in dest_ids]
+
+                if edge_values:
+                    edge_stmt = pg_insert(URLEdge).values(
+                        edge_values).on_conflict_do_nothing()
+                    db.execute(edge_stmt)
+                    log_extra['edges_created'] = len(edge_values)
+                    logger.debug(
+                        f"Created {len(edge_values)} edges in the link graph.", extra=log_extra)
+
+            num_added = len(all_inserted_links)
             logger.info(
-                "Discovered and queued {0} new links.".format(len(new_links)))
-
-            dest_urls_query = db.query(URL.id).filter(URL.url.in_(new_links))
-            dest_url_ids = [item.id for item in dest_urls_query]
-
-            if dest_url_ids:
-                source_id = url_record.id
-                edge_values = [
-                    {"source_url_id": source_id, "dest_url_id": dest_id}
-                    for dest_id in dest_url_ids
-                ]
-                stmt = pg_insert(URLEdge).values(edge_values)
-                stmt = stmt.on_conflict_do_nothing(
-                    index_elements=['source_url_id', 'dest_url_id'])
-                db.execute(stmt)
-                logger.info(
-                    "🔗 Inserted {0} edges into the link graph.".format(len(edge_values)))
+                f"✅ Crawl complete for {url_record.url}. Added {num_added} new URLs.")
+        else:
+            logger.info(
+                f"✅ Crawl complete for {url_record.url}. Found 0 new links.")
 
         url_record.status = CrawlStatus.completed
         url_record.processed_at = datetime.now(timezone.utc)
-
     except Exception as e:
-        logger.error("Failed to crawl {0}: {1}".format(
-            url_record.url, e), exc_info=False)
+        logger.error(f"Failed to crawl {url_record.url}: {e}", exc_info=False)
         url_record.status = CrawlStatus.failed
         url_record.error_message = str(e)
 
@@ -6063,42 +6205,46 @@ def process_crawl_task(db, url_record: URL):
 
 
 def main():
-    logger.info("Starting BlogSpy Worker...")
-    artifact = joblib.load(MODEL_PATH)
-    logger.info("Model loaded successfully.")
-
+    # This main loop is correct and does not need to change.
+    logger.info("--- Starting BlogSpy Worker ---")
+    try:
+        artifact = joblib.load(MODEL_PATH)
+        logger.info("Model loaded successfully.")
+    except FileNotFoundError:
+        logger.error(f"Model file not found at {MODEL_PATH}. Exiting.")
+        sys.exit(1)
     while True:
+        logger.debug("Starting new worker cycle", extra={
+                     "event": "cycle_start", "performance": get_performance_metrics()})
         db = SessionLocal()
         try:
-            jobs = db.query(URL).filter(
-                URL.status.in_(
-                    [CrawlStatus.pending_classification, CrawlStatus.pending_crawl])
-            ).with_for_update(skip_locked=True).limit(BATCH_SIZE).all()
-
-            if not jobs:
+            job_processed = False
+            for job_type, status_from, status_to, process_func, args in [
+                ("crawling", CrawlStatus.pending_crawl,
+                 CrawlStatus.crawling, process_crawl_task, []),
+                ("classification", CrawlStatus.pending_classification,
+                 CrawlStatus.classifying, process_classification_task, [artifact])
+            ]:
+                jobs = db.query(URL).filter(URL.status == status_from).with_for_update(
+                    skip_locked=True).limit(BATCH_SIZE).all()
+                if jobs:
+                    job_processed = True
+                    logger.info(f"Fetched {len(jobs)} {job_type} jobs.")
+                    for job in jobs:
+                        job.status = status_to
+                    db.commit()
+                    for job in jobs:
+                        process_func(db, job, *args)
+                    break
+            if not job_processed:
                 logger.info(
-                    "No pending jobs. Sleeping for {0} seconds.".format(SLEEP_INTERVAL))
-                db.close()
+                    f"No pending jobs. Sleeping for {SLEEP_INTERVAL} seconds.")
                 time.sleep(SLEEP_INTERVAL)
-                continue
-
-            for job in jobs:
-                if job.status == CrawlStatus.pending_classification:
-                    job.status = CrawlStatus.classifying
-                elif job.status == CrawlStatus.pending_crawl:
-                    job.status = CrawlStatus.crawling
-            db.commit()
-
-            for job in jobs:
-                if job.status == CrawlStatus.classifying:
-                    process_classification_task(db, job, artifact)
-                elif job.status == CrawlStatus.crawling:
-                    process_crawl_task(db, job)
-
         except Exception as e:
             logger.error(
-                "An unexpected error occurred in the main loop: {0}".format(e), exc_info=True)
-            db.rollback()
+                f"An unexpected error occurred in the main loop: {e}", exc_info=True)
+            if db.is_active:
+                db.rollback()
             time.sleep(SLEEP_INTERVAL)
         finally:
             if db.is_active:
@@ -6124,53 +6270,41 @@ File: src/db/schema.sql
 
 -- Define ENUM types for status and rendering
 CREATE TYPE crawl_status AS ENUM (
-    'pending_classification',
-    'classifying',
-    'pending_crawl',
-    'crawling',
-    'completed',
-    'irrelevant',
-    'failed'
+    'pending_classification', 'classifying',
+    'pending_crawl', 'crawling', 'completed',
+    'irrelevant', 'failed'
 );
 
 CREATE TYPE rendering_type AS ENUM (
-    'SSR',
-    'CSR',
-    'UNKNOWN'
+    'SSR', 'CSR', 'UNKNOWN'
 );
 
--- Main table for storing URLs and their metadata
+-- Main table for storing URLs and their metadata (SIMPLIFIED)
 CREATE TABLE urls (
     id             SERIAL PRIMARY KEY,
     url            TEXT           NOT NULL UNIQUE,
-    netloc         TEXT           NOT NULL, -- <-- NEW: For domain-level logic
+    netloc         TEXT           NOT NULL,
     status         crawl_status   NOT NULL DEFAULT 'pending_classification',
-    rendering      rendering_type NOT NULL DEFAULT 'UNKNOWN', -- <-- NEW: For CSR detection
+    rendering      rendering_type NOT NULL DEFAULT 'UNKNOWN',
     content        TEXT,
-    title          TEXT, -- <-- NEW
-    description    TEXT, -- <-- NEW
-    classification TEXT,
-    confidence     REAL,
+    title          TEXT,
+    description    TEXT,
     error_message  TEXT,
     processed_at   TIMESTAMPTZ,
     created_at     TIMESTAMPTZ    NOT NULL DEFAULT NOW()
 );
 
--- Optimized index for the worker to find pending jobs
+-- Indexes remain the same
 CREATE INDEX idx_urls_status ON urls (status) WHERE status IN ('pending_classification', 'pending_crawl');
+CREATE INDEX idx_urls_netloc_status ON urls (netloc, status);
 
--- Optimized index for the domain fast-path logic
-CREATE INDEX idx_urls_netloc_status ON urls (netloc, status); -- <-- NEW
-
-
--- Table to store the link graph for PageRank
+-- Edge table remains the same
 CREATE TABLE url_edges (
     source_url_id INTEGER NOT NULL REFERENCES urls(id) ON DELETE CASCADE,
     dest_url_id   INTEGER NOT NULL REFERENCES urls(id) ON DELETE CASCADE,
     PRIMARY KEY (source_url_id, dest_url_id)
 );
 
--- Index to efficiently find all incoming links to a URL (backlinks)
-CREATE INDEX idx_url_edges_dest ON url_edges (dest_url_id); -- <-- NEW
+CREATE INDEX idx_url_edges_dest ON url_edges (dest_url_id);
 
 

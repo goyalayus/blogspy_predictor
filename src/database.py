@@ -9,7 +9,13 @@ from urllib.parse import urlparse
 
 from src.settings import settings
 
-engine = create_engine(settings.DATABASE_URL)
+# Increase the connection pool size to support high concurrency from worker threads.
+engine = create_engine(
+    settings.DATABASE_URL,
+    pool_size=50,
+    max_overflow=20
+)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -29,7 +35,8 @@ class RenderingType(str, enum.Enum):
     CSR = 'CSR'
     UNKNOWN = 'UNKNOWN'
 
-# --- URL TABLE (SIMPLIFIED) ---
+# --- URL TABLE ---
+# This model is now back to its correct state without the extra columns.
 
 
 class URL(Base):
