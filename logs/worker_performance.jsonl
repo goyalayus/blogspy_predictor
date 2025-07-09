@@ -1,0 +1,31 @@
+{"timestamp": "2025-07-09 18:31:17,095", "level": "INFO", "message": "--- Starting BlogSpy Worker ---", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:31:17,419", "level": "INFO", "message": "Model loaded successfully.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:31:17,521", "level": "DEBUG", "message": "Starting new worker cycle", "logger_name": "worker", "event": "cycle_start", "performance": {"cpu_percent": 19.0, "memory_rss_mb": 188.93}}
+{"timestamp": "2025-07-09 18:31:26,016", "level": "INFO", "message": "Fetched 2 crawling jobs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:31:28,679", "level": "INFO", "message": "[CRAWL] Starting: https://www.joshwcomeau.com/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:31:30,319", "level": "DEBUG", "message": "Crawl insertion plan", "logger_name": "worker", "event": "crawl_task", "url_id": 1, "url": "https://www.joshwcomeau.com/", "insert_stats": {"irrelevant": 0, "pending_crawl": 33, "pending_classification": 8}}
+{"timestamp": "2025-07-09 18:31:31,750", "level": "INFO", "message": "\u2705 Crawl complete for https://www.joshwcomeau.com/. Added 41 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:31:34,210", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:31:37,642", "level": "DEBUG", "message": "Crawl insertion plan", "logger_name": "worker", "event": "crawl_task", "url_id": 2, "url": "https://jvns.ca/", "insert_stats": {"irrelevant": 0, "pending_crawl": 615, "pending_classification": 6}}
+{"timestamp": "2025-07-09 18:31:39,173", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/. Added 621 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:31:40,351", "level": "DEBUG", "message": "Starting new worker cycle", "logger_name": "worker", "event": "cycle_start", "performance": {"cpu_percent": 2.6, "memory_rss_mb": 199.06}}
+{"timestamp": "2025-07-09 18:31:41,172", "level": "INFO", "message": "Fetched 5 crawling jobs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:31:44,861", "level": "INFO", "message": "[CRAWL] Starting: https://www.joshwcomeau.com/react/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:19,752", "level": "INFO", "message": "--- Starting BlogSpy Worker ---", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:20,221", "level": "INFO", "message": "Model loaded successfully.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:20,322", "level": "DEBUG", "message": "Starting new worker cycle", "logger_name": "worker", "event": "cycle_start", "performance": {"cpu_percent": 25.0, "memory_rss_mb": 189.02}}
+{"timestamp": "2025-07-09 18:40:27,518", "level": "INFO", "message": "Fetched 3 crawling jobs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:30,386", "level": "INFO", "message": "[CRAWL] Starting: https://www.joshwcomeau.com/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:30,994", "level": "WARNING", "message": "\u26a0\ufe0f Detected Client-Side Rendering for https://www.joshwcomeau.com/. Skipping crawl, marking as completed.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:32,842", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:36,790", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/. Added 621 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:38,433", "level": "INFO", "message": "[CRAWL] Starting: https://goyalayus.github.io/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:40,892", "level": "INFO", "message": "\u2705 Crawl complete for https://goyalayus.github.io/. Added 13 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:41,957", "level": "DEBUG", "message": "Starting new worker cycle", "logger_name": "worker", "event": "cycle_start", "performance": {"cpu_percent": 3.8, "memory_rss_mb": 199.77}}
+{"timestamp": "2025-07-09 18:40:42,680", "level": "INFO", "message": "Fetched 5 crawling jobs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:46,371", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2014/07/17/ruby-rogues/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:49,636", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2014/07/17/ruby-rogues/. Added 2 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:51,275", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2019/10/01/zine-revenue-2019/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:53,732", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2019/10/01/zine-revenue-2019/. Added 1 new URLs.", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:55,780", "level": "INFO", "message": "[CRAWL] Starting: https://jvns.ca/blog/2022/04/12/a-list-of-new-ish--command-line-tools/", "logger_name": "worker"}
+{"timestamp": "2025-07-09 18:40:58,033", "level": "INFO", "message": "\u2705 Crawl complete for https://jvns.ca/blog/2022/04/12/a-list-of-new-ish--command-line-tools/. Added 73 new URLs.", "logger_name": "worker"}

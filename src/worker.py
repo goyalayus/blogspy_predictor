@@ -1,163 +1,288 @@
+# src/worker.py
+
+from sqlalchemy.orm import Session
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from src.config import MODELS_DIR, REQUEST_HEADERS
+from src.feature_engineering import extract_url_features, extract_structural_features, extract_content_features
+from src.database import SessionLocal, URL, CrawlStatus, RenderingType
+from src.utils import setup_logging
 import sys
 import pathlib
 import joblib
 import pandas as pd
 import requests
-from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 import warnings
 import scipy.sparse as sp
-import numpy as np
+import psutil
 import time
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
+from collections import defaultdict
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 
 project_root = pathlib.Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
-from src.utils import get_logger
-from src.database import SessionLocal, URL, CrawlStatus, bulk_insert_urls
-from src.feature_engineering import extract_url_features, extract_structural_features, extract_content_features
-from src.config import MODELS_DIR, ID_TO_LABEL, REQUEST_TIMEOUT, REQUEST_HEADERS
-
 MODEL_PATH = MODELS_DIR / 'lgbm_final_model.joblib'
 BATCH_SIZE = 5
 SLEEP_INTERVAL = 10
-PERSONAL_BLOG_LABEL = "PERSONAL_BLOG" 
+PERSONAL_BLOG_LABEL = "PERSONAL_BLOG"
 
-logger = get_logger('worker')
+logger = setup_logging('worker')
 
-def fetch_content(url: str) -> dict:
-    response = requests.get(url, timeout=REQUEST_TIMEOUT, headers=REQUEST_HEADERS)
+
+def get_performance_metrics():
+    return {"cpu_percent": psutil.cpu_percent(interval=0.1), "memory_rss_mb": round(psutil.Process().memory_info().rss / (1024 * 1024), 2)}
+
+
+def check_for_csr(soup: BeautifulSoup) -> bool:
+    """
+    Uses heuristics to guess if a page is Client-Side Rendered.
+    A common pattern for CSR apps (React, Vue, etc.) is a root div
+    with little to no text content in the initial HTML payload.
+    """
+    # Look for common root element IDs used by JS frameworks
+    if soup.find('div', id='root') or soup.find('div', id='app'):
+        # If the body has very little text, it's likely waiting for JS to render.
+        body_text = soup.body.get_text(
+            strip=True, separator=' ') if soup.body else ''
+        if len(body_text) < 250:  # Threshold can be tuned
+            return True
+
+    # Another heuristic: check for Next.js specific template for client-side bailout
+    if soup.find('template', attrs={'data-dgst': 'BAILOUT_TO_CLIENT_SIDE_RENDERING'}):
+        return True
+
+    return False
+
+
+def fetch_and_parse_content(url: str) -> dict:
+    response = requests.get(url, timeout=10, headers=REQUEST_HEADERS)
     response.raise_for_status()
-    html_content = response.text
-    
-    warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
-    soup = BeautifulSoup(html_content, 'lxml')
+    html = response.text
+    soup = BeautifulSoup(html, 'lxml')
 
-    for script_or_style in soup(['script', 'style']):
-        script_or_style.decompose()
+    # Check for CSR before we do anything else
+    is_csr = check_for_csr(soup)
+    if is_csr:
+        return {"is_csr": True, "soup": soup, "html_content": html}
+
+    title = (soup.find('title').get_text(strip=True)
+             ) if soup.find('title') else None
+    desc = soup.find('meta', attrs={'name': 'description'})
+    description = desc['content'].strip(
+    ) if desc and desc.get('content') else None
+    for s in soup(['script', 'style']):
+        s.decompose()
     text_content = ' '.join(soup.stripped_strings)
 
-    return {"html_content": html_content, "text_content": text_content}
+    return {"is_csr": False, "html_content": html, "text_content": text_content, "title": title, "description": description, "soup": soup}
 
-def extract_links_from_html(html_content: str, base_url: str) -> list[str]:
-    soup = BeautifulSoup(html_content, 'lxml')
+# ... (extract_links and bulk_insert_with_status remain the same) ...
+
+
+def extract_links(html, base_url):
     links = set()
-    parsed_base = urlparse(base_url)
-
-    for a_tag in soup.find_all('a', href=True):
-        href = a_tag['href'].strip()
-        if not href or href.startswith('#') or href.startswith('mailto:'):
+    for a in BeautifulSoup(html, 'lxml').find_all('a', href=True):
+        href = a['href'].strip()
+        if not href or href.startswith(('#', 'mailto:', 'javascript:')):
             continue
-        
-        full_url = urljoin(base_url, href)
-        parsed_full = urlparse(full_url)
-
-        if parsed_full.scheme in ['http', 'https'] and parsed_full.netloc == parsed_base.netloc:
-            links.add(full_url)
-    
+        try:
+            full_url = urljoin(base_url, href)
+            if urlparse(full_url).scheme in ['http', 'https']:
+                links.add(full_url)
+        except:
+            continue
     return list(links)
 
 
-def process_classification_task(db, url_record: URL, artifact: dict):
-    logger.info(f"[CLASSIFY] Processing {url_record.url}")
-    try:
-        site_data = fetch_content(url_record.url)
-        
-        vectorizer, model = artifact['vectorizer'], artifact['model']
-        df = pd.DataFrame([{**site_data, "url": url_record.url}])
-        
-        txt_features = vectorizer.transform(df["text_content"].fillna(""))
-        url_features = extract_url_features(df["url"]).to_numpy(dtype="float32")
-        structural_features = extract_structural_features(df["html_content"]).to_numpy(dtype="float32")
-        content_features = extract_content_features(df["text_content"]).to_numpy(dtype="float32")
-        
-        features = sp.hstack([txt_features, sp.csr_matrix(url_features), sp.csr_matrix(structural_features), sp.csr_matrix(content_features)], format="csr")
-        
-        probabilities = model.predict(features)
-        prediction_id = (probabilities > 0.5).astype(int)[0]
-        confidence = probabilities[0] if prediction_id == 1 else 1 - probabilities[0]
-        label = ID_TO_LABEL[prediction_id].upper()
+def bulk_insert_with_status(db: Session, records: list[dict]):
+    if not records:
+        return
+    stmt = pg_insert(URL).values(
+        records).on_conflict_do_nothing(index_elements=['url'])
+    db.execute(stmt)
 
-        url_record.classification = label
-        url_record.confidence = float(confidence)
+# ==============================================================================
+#  TASK PROCESSING FUNCTIONS
+# ==============================================================================
+
+
+def process_classification_task(db, url_record: URL, artifact: dict):
+    logger.info(f"[CLASSIFY] Starting: {url_record.url}")
+    try:
+        content = fetch_and_parse_content(url_record.url)
+
+        # Handle CSR pages
+        if content.get("is_csr"):
+            logger.warning(
+                f"⚠️ Detected Client-Side Rendering for {url_record.url}. Marking as irrelevant.")
+            url_record.status = CrawlStatus.irrelevant
+            url_record.rendering = RenderingType.CSR
+            url_record.error_message = "Detected Client-Side Rendering"
+            db.commit()
+            return
+
+        url_record.rendering = RenderingType.SSR
+
+        df = pd.DataFrame([{**content, "url": url_record.url}])
+        txt_feat = artifact['vectorizer'].transform(
+            df["text_content"].fillna(""))
+        num_feat_df = pd.concat([extract_url_features(df['url']), extract_structural_features(
+            df['html_content']), extract_content_features(df['text_content'])], axis=1)
+        num_feat = sp.csr_matrix(num_feat_df.to_numpy(dtype="float32"))
+        features = sp.hstack([txt_feat, num_feat], format="csr")
+        is_personal_blog = (artifact['model'].predict(
+            features) > 0.5).astype(int)[0]
+
         url_record.processed_at = datetime.now(timezone.utc)
-        
-        if label == PERSONAL_BLOG_LABEL:
+        url_record.title = content.get('title')
+        url_record.description = content.get('description')
+        if is_personal_blog:
             url_record.status = CrawlStatus.pending_crawl
-            url_record.content = site_data['text_content']
-            logger.info(f"✅ Classified as PERSONAL_BLOG. Stored content and queued for crawling.")
+            url_record.content = content['text_content']
+            logger.info(
+                f"✅ Classified as Personal Blog. Queued for crawling: {url_record.url}")
         else:
             url_record.status = CrawlStatus.irrelevant
-            url_record.content = None
-            logger.info(f"❌ Classified as {label}. Marked as irrelevant, content not stored.")
-
+            logger.info(f"❌ Classified as Irrelevant: {url_record.url}")
     except Exception as e:
-        logger.error(f"Failed to classify {url_record.url}: {e}", exc_info=False)
+        logger.error(
+            f"Failed to classify {url_record.url}: {e}", exc_info=False)
         url_record.status = CrawlStatus.failed
         url_record.error_message = str(e)
-        url_record.content = None
-
     db.commit()
 
+
 def process_crawl_task(db, url_record: URL):
-    logger.info(f"[CRAWL] Processing {url_record.url}")
+    logger.info(f"[CRAWL] Starting: {url_record.url}")
     try:
-        site_data = fetch_content(url_record.url)
-        
-        new_links = extract_links_from_html(site_data['html_content'], url_record.url)
+        content = fetch_and_parse_content(url_record.url)
+
+        # Handle CSR pages
+        if content.get("is_csr"):
+            logger.warning(
+                f"⚠️ Detected Client-Side Rendering for {url_record.url}. Skipping crawl, marking as completed.")
+            # Mark as done, but we didn't get links
+            url_record.status = CrawlStatus.completed
+            url_record.rendering = RenderingType.CSR
+            url_record.error_message = "Detected Client-Side Rendering during crawl"
+            db.commit()
+            return
+
+        url_record.rendering = RenderingType.SSR
+
+        # Save content for the crawled page
+        url_record.title = content.get('title')
+        url_record.description = content.get('description')
+        url_record.content = content.get('text_content')
+
+        new_links = extract_links(content['html_content'], url_record.url)
+
         if new_links:
-            bulk_insert_urls(db, new_links)
-            logger.info(f"Discovered and queued {len(new_links)} new links.")
-        
+            # ... (fast-path logic remains the same and is correct) ...
+            links_by_netloc = defaultdict(list)
+            for link in new_links:
+                if nloc := urlparse(link).netloc:
+                    links_by_netloc[nloc].append(link)
+            existing_urls = {u.url for u in db.query(
+                URL.url).filter(URL.url.in_(new_links))}
+            personal_statuses = {CrawlStatus.pending_crawl,
+                                 CrawlStatus.crawling, CrawlStatus.completed}
+            domain_decisions_q = db.query(URL.netloc, URL.status).filter(URL.netloc.in_(links_by_netloc.keys(
+            )), URL.status.in_(personal_statuses | {CrawlStatus.irrelevant})).distinct(URL.netloc)
+            domain_decisions = {
+                res.netloc: res.status for res in domain_decisions_q}
+            to_insert_irrelevant, to_insert_pending_crawl, to_insert_pending_classification = [], [], []
+            for netloc, links in links_by_netloc.items():
+                for link in links:
+                    if link in existing_urls:
+                        continue
+                    if netloc == url_record.netloc:
+                        to_insert_pending_crawl.append(
+                            {"url": link, "netloc": netloc, "status": CrawlStatus.pending_crawl})
+                    elif netloc in domain_decisions:
+                        decision = domain_decisions[netloc]
+                        if decision == CrawlStatus.irrelevant:
+                            to_insert_irrelevant.append(
+                                {"url": link, "netloc": netloc, "status": CrawlStatus.irrelevant})
+                        elif decision in personal_statuses:
+                            to_insert_pending_crawl.append(
+                                {"url": link, "netloc": netloc, "status": CrawlStatus.pending_crawl})
+                    else:
+                        to_insert_pending_classification.append(
+                            {"url": link, "netloc": netloc, "status": CrawlStatus.pending_classification})
+
+            bulk_insert_with_status(db, to_insert_irrelevant)
+            bulk_insert_with_status(db, to_insert_pending_classification)
+            bulk_insert_with_status(
+                db, to_insert_pending_crawl)  # Corrected order
+            num_added = len(to_insert_irrelevant) + len(to_insert_pending_crawl) + \
+                len(to_insert_pending_classification)
+            logger.info(
+                f"✅ Crawl complete for {url_record.url}. Added {num_added} new URLs.")
+        else:
+            logger.info(
+                f"✅ Crawl complete for {url_record.url}. Found 0 new links.")
+
         url_record.status = CrawlStatus.completed
         url_record.processed_at = datetime.now(timezone.utc)
-
     except Exception as e:
         logger.error(f"Failed to crawl {url_record.url}: {e}", exc_info=False)
         url_record.status = CrawlStatus.failed
         url_record.error_message = str(e)
-    
+
     db.commit()
 
+# ... (main loop remains the same) ...
+
+
 def main():
-    logger.info("Starting BlogSpy Worker...")
-    artifact = joblib.load(MODEL_PATH)
-    logger.info("Model loaded successfully.")
-    
+    logger.info("--- Starting BlogSpy Worker ---")
+    try:
+        artifact = joblib.load(MODEL_PATH)
+        logger.info("Model loaded successfully.")
+    except FileNotFoundError:
+        logger.error(f"Model file not found at {MODEL_PATH}. Exiting.")
+        sys.exit(1)
     while True:
+        logger.debug("Starting new worker cycle", extra={
+                     "event": "cycle_start", "performance": get_performance_metrics()})
         db = SessionLocal()
         try:
-            jobs = db.query(URL).filter(
-                URL.status.in_([CrawlStatus.pending_classification, CrawlStatus.pending_crawl])
-            ).with_for_update(skip_locked=True).limit(BATCH_SIZE).all()
+            job_processed = False
+            for job_type, status_from, status_to, process_func, args in [
+                ("crawling", CrawlStatus.pending_crawl,
+                 CrawlStatus.crawling, process_crawl_task, []),
+                ("classification", CrawlStatus.pending_classification,
+                 CrawlStatus.classifying, process_classification_task, [artifact])
+            ]:
+                jobs = db.query(URL).filter(URL.status == status_from).with_for_update(
+                    skip_locked=True).limit(BATCH_SIZE).all()
+                if jobs:
+                    job_processed = True
+                    logger.info(f"Fetched {len(jobs)} {job_type} jobs.")
+                    for job in jobs:
+                        job.status = status_to
+                    db.commit()
+                    for job in jobs:
+                        process_func(db, job, *args)
+                    break
 
-            if not jobs:
-                logger.info(f"No pending jobs. Sleeping for {SLEEP_INTERVAL} seconds.")
-                db.close()
+            if not job_processed:
+                logger.info(
+                    f"No pending jobs. Sleeping for {SLEEP_INTERVAL} seconds.")
                 time.sleep(SLEEP_INTERVAL)
-                continue
-            
-            for job in jobs:
-                if job.status == CrawlStatus.pending_classification:
-                    job.status = CrawlStatus.classifying
-                elif job.status == CrawlStatus.pending_crawl:
-                    job.status = CrawlStatus.crawling
-            db.commit()
-
-            for job in jobs:
-                if job.status == CrawlStatus.classifying:
-                    process_classification_task(db, job, artifact)
-                elif job.status == CrawlStatus.crawling:
-                    process_crawl_task(db, job)
-
         except Exception as e:
-            logger.error(f"An unexpected error occurred in the main loop: {e}", exc_info=True)
-            db.rollback()
+            logger.error(
+                f"An unexpected error occurred in the main loop: {e}", exc_info=True)
+            if db.is_active:
+                db.rollback()
             time.sleep(SLEEP_INTERVAL)
         finally:
             if db.is_active:
                 db.close()
+
 
 if __name__ == "__main__":
     main()

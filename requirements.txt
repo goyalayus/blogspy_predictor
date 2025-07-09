@@ -5,6 +5,7 @@ pandas
 numpy
 joblib
 lightgbm # Important: joblib needs this to load the booster object
+psutil # NEW: For system resource monitoring
 
 # Web Scraping
 requests

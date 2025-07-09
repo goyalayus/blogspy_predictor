@@ -1,0 +1,25 @@
+2025-07-09 18:31:17,095 - worker - INFO - --- Starting BlogSpy Worker ---
+2025-07-09 18:31:17,419 - worker - INFO - Model loaded successfully.
+2025-07-09 18:31:26,016 - worker - INFO - Fetched 2 crawling jobs.
+2025-07-09 18:31:28,679 - worker - INFO - [CRAWL] Starting: https://www.joshwcomeau.com/
+2025-07-09 18:31:31,750 - worker - INFO - ✅ Crawl complete for https://www.joshwcomeau.com/. Added 41 new URLs.
+2025-07-09 18:31:34,210 - worker - INFO - [CRAWL] Starting: https://jvns.ca/
+2025-07-09 18:31:39,173 - worker - INFO - ✅ Crawl complete for https://jvns.ca/. Added 621 new URLs.
+2025-07-09 18:31:41,172 - worker - INFO - Fetched 5 crawling jobs.
+2025-07-09 18:31:44,861 - worker - INFO - [CRAWL] Starting: https://www.joshwcomeau.com/react/
+2025-07-09 18:40:19,752 - worker - INFO - --- Starting BlogSpy Worker ---
+2025-07-09 18:40:20,221 - worker - INFO - Model loaded successfully.
+2025-07-09 18:40:27,518 - worker - INFO - Fetched 3 crawling jobs.
+2025-07-09 18:40:30,386 - worker - INFO - [CRAWL] Starting: https://www.joshwcomeau.com/
+2025-07-09 18:40:30,994 - worker - WARNING - ⚠️ Detected Client-Side Rendering for https://www.joshwcomeau.com/. Skipping crawl, marking as completed.
+2025-07-09 18:40:32,842 - worker - INFO - [CRAWL] Starting: https://jvns.ca/
+2025-07-09 18:40:36,790 - worker - INFO - ✅ Crawl complete for https://jvns.ca/. Added 621 new URLs.
+2025-07-09 18:40:38,433 - worker - INFO - [CRAWL] Starting: https://goyalayus.github.io/
+2025-07-09 18:40:40,892 - worker - INFO - ✅ Crawl complete for https://goyalayus.github.io/. Added 13 new URLs.
+2025-07-09 18:40:42,680 - worker - INFO - Fetched 5 crawling jobs.
+2025-07-09 18:40:46,371 - worker - INFO - [CRAWL] Starting: https://jvns.ca/blog/2014/07/17/ruby-rogues/
+2025-07-09 18:40:49,636 - worker - INFO - ✅ Crawl complete for https://jvns.ca/blog/2014/07/17/ruby-rogues/. Added 2 new URLs.
+2025-07-09 18:40:51,275 - worker - INFO - [CRAWL] Starting: https://jvns.ca/blog/2019/10/01/zine-revenue-2019/
+2025-07-09 18:40:53,732 - worker - INFO - ✅ Crawl complete for https://jvns.ca/blog/2019/10/01/zine-revenue-2019/. Added 1 new URLs.
+2025-07-09 18:40:55,780 - worker - INFO - [CRAWL] Starting: https://jvns.ca/blog/2022/04/12/a-list-of-new-ish--command-line-tools/
+2025-07-09 18:40:58,033 - worker - INFO - ✅ Crawl complete for https://jvns.ca/blog/2022/04/12/a-list-of-new-ish--command-line-tools/. Added 73 new URLs.
