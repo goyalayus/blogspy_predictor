@@ -321,7 +321,7 @@ def main():
         sys.exit(1)
 
     cpu_cores = os.cpu_count() or 1
-    max_workers = min(BATCH_SIZE * 2, cpu_cores * 10)
+    max_workers = min(BATCH_SIZE * 2, cpu_cores * 5)
     logger.info(
         f"Initialized with BATCH_SIZE={BATCH_SIZE} and max_workers={max_workers}.")
 
