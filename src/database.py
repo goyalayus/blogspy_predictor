@@ -53,6 +53,8 @@ class URL(Base):
     description = Column(Text)
     error_message = Column(Text)
     processed_at = Column(DateTime(timezone=True))
+    # <-- ADDED FOR FAULT TOLERANCE
+    locked_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True),
                         nullable=False, server_default=func.now())
 

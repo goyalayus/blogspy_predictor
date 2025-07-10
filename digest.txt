@@ -5470,7 +5470,7 @@ from src.settings import settings
 # Increase the connection pool size to support high concurrency from worker threads.
 engine = create_engine(
     settings.DATABASE_URL,
-    pool_size=50,
+    pool_size=100,
     max_overflow=20
 )
 
@@ -5934,7 +5934,7 @@ project_root = pathlib.Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
 MODEL_PATH = MODELS_DIR / 'lgbm_final_model.joblib'
-BATCH_SIZE = 100
+BATCH_SIZE = 500
 SLEEP_INTERVAL = 5
 
 IGNORE_EXTENSIONS = (
@@ -6185,7 +6185,7 @@ def main():
         sys.exit(1)
 
     cpu_cores = os.cpu_count() or 1
-    max_workers = min(BATCH_SIZE * 2, cpu_cores * 5)
+    max_workers = min(BATCH_SIZE * 2, cpu_cores * 10)
     logger.info(
         f"Initialized with BATCH_SIZE={BATCH_SIZE} and max_workers={max_workers}.")
 

@@ -2,6 +2,7 @@
 
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import case, cast  # <-- Imports are correct
 from src.config import MODELS_DIR, REQUEST_HEADERS
 from src.feature_engineering import extract_url_features, extract_structural_features, extract_content_features
 from src.database import SessionLocal, URL, URLEdge, CrawlStatus, RenderingType
@@ -174,7 +175,7 @@ def _perform_crawl_logic(db_session: Session, url_record: URL, content: dict):
     logger.info(
         f"✅ (From Classify) Crawl logic for {url_record.url} added {len(all_inserted_links)} new URLs.")
 
-# --- Task Processing Functions (FIXED) ---
+# --- Task Processing Functions (Unchanged) ---
 
 
 def process_classification_task(db_session: Session, url_record: URL, artifact: dict):
@@ -203,7 +204,7 @@ def process_classification_task(db_session: Session, url_record: URL, artifact: 
         url_record.processed_at = datetime.now(timezone.utc)
         url_record.title = content.get('title')
         url_record.description = content.get('description')
-        url_record.content = content.get('text_content')  # <<< FIX IS HERE
+        url_record.content = content.get('text_content')
 
         if is_personal_blog:
             _perform_crawl_logic(db_session, url_record, content)
@@ -237,7 +238,7 @@ def process_crawl_task(db_session: Session, url_record: URL):
         url_record.processed_at = datetime.now(timezone.utc)
         url_record.title = content.get('title')
         url_record.description = content.get('description')
-        url_record.content = content.get('text_content')  # <<< FIX IS HERE
+        url_record.content = content.get('text_content')
 
     except Exception as e:
         logger.error(f"Failed to crawl {url_record.url}: {e}", exc_info=False)
@@ -265,9 +266,51 @@ def run_task_in_thread(task_func, job_id: int, *args):
     finally:
         db_session.close()
 
+# --- NEW "REAPER" FUNCTION FOR FAULT TOLERANCE (CORRECTED) ---
+
+
+def reset_stalled_jobs(db_session: Session):
+    """Finds and resets jobs that were stuck in an in-progress state for too long."""
+    try:
+        timeout_interval = 15  # minutes
+
+        # This CASE statement resets a job to its correct previous pending state
+        # THE FIX: Cast to the column's specific type, not the Python class.
+        smart_reset_status = case(
+            (URL.status == 'classifying', cast(
+                'pending_classification', URL.status.type)),
+            (URL.status == 'crawling',    cast('pending_crawl', URL.status.type)),
+        )
+
+        stalled_jobs_query = db_session.query(URL).filter(
+            URL.status.in_(['classifying', 'crawling']),
+            URL.locked_at < (datetime.now(timezone.utc) -
+                             pd.Timedelta(minutes=timeout_interval))
+        )
+
+        rows_reset = stalled_jobs_query.update(
+            {
+                'status': smart_reset_status,
+                'locked_at': None
+            },
+            synchronize_session=False
+        )
+
+        if rows_reset > 0:
+            db_session.commit()
+            logger.warning(
+                f"Reaper: Reset {rows_reset} stalled jobs to their pending state.")
+        else:
+            # Nothing was updated, so no need to commit. Can rollback to be safe.
+            db_session.rollback()
+
+    except Exception as e:
+        logger.error(
+            f"Reaper: Failed to reset stalled jobs: {e}", exc_info=True)
+        db_session.rollback()
+
+
 # --- Main Loop (Unchanged) ---
-
-
 def main():
     logger.info("--- Starting BlogSpy Worker ---")
     try:
@@ -288,6 +331,9 @@ def main():
         db = SessionLocal()
         job_processed_in_cycle = False
         try:
+            # --- REAPER LOGIC RUNS AT THE START OF EVERY CYCLE ---
+            reset_stalled_jobs(db)
+
             for job_type, status_from, status_to, process_func, args in [
                 ("crawling", CrawlStatus.pending_crawl,
                  CrawlStatus.crawling, process_crawl_task, []),
@@ -299,8 +345,14 @@ def main():
                 job_ids = [id_tuple[0] for id_tuple in job_ids_query.all()]
                 if job_ids:
                     job_processed_in_cycle = True
+                    # --- MODIFIED UPDATE QUERY TO SET LOCK TIMESTAMP ---
                     db.query(URL).filter(URL.id.in_(job_ids)).update(
-                        {'status': status_to}, synchronize_session=False)
+                        {
+                            'status': status_to,
+                            'locked_at': datetime.now(timezone.utc)
+                        },
+                        synchronize_session=False
+                    )
                     db.commit()
                     logger.info(
                         f"Locked and dispatched {len(job_ids)} {job_type} jobs.")

@@ -29,14 +29,15 @@ CREATE TABLE urls (
     description    TEXT,
     error_message  TEXT,
     processed_at   TIMESTAMPTZ,
+    locked_at      TIMESTAMPTZ, -- ADDED FOR FAULT TOLERANCE
     created_at     TIMESTAMPTZ    NOT NULL DEFAULT NOW()
 );
 
--- Indexes remain the same
+-- Indexes for performance
 CREATE INDEX idx_urls_status ON urls (status) WHERE status IN ('pending_classification', 'pending_crawl');
 CREATE INDEX idx_urls_netloc_status ON urls (netloc, status);
 
--- Edge table remains the same
+-- Edge table for linking URLs
 CREATE TABLE url_edges (
     source_url_id INTEGER NOT NULL REFERENCES urls(id) ON DELETE CASCADE,
     dest_url_id   INTEGER NOT NULL REFERENCES urls(id) ON DELETE CASCADE,
