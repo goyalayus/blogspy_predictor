@@ -1,0 +1,5 @@
+{"timestamp": "2025-07-12 23:15:23,020", "level": "INFO", "message": "Loading model: lgbm_final_model.joblib...", "logger_name": "predict"}
+{"timestamp": "2025-07-12 23:15:23,570", "level": "INFO", "message": "Model loaded successfully.", "logger_name": "predict"}
+{"timestamp": "2025-07-12 23:15:23,570", "level": "INFO", "message": "Analyzing URL: https://x.com/ClementDelangue/status/1944055485797167344", "logger_name": "predict"}
+{"timestamp": "2025-07-12 23:15:23,571", "level": "INFO", "message": "Fetching content from https://x.com/ClementDelangue/status/1944055485797167344...", "logger_name": "predict"}
+{"timestamp": "2025-07-12 23:15:24,703", "level": "ERROR", "message": "An unexpected error occurred while parsing https://x.com/ClementDelangue/status/1944055485797167344: Logger._log() got an unexpected keyword argument 'extra_data'", "logger_name": "predict"}

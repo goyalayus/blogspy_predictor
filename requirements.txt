@@ -20,3 +20,5 @@ psycopg2-binary  # Postgres driver
 
 pydantic-settings
 validators
+# In requirements.txt
+plotext

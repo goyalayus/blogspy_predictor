@@ -3,20 +3,19 @@ Directory structure:
     ├── README.md
     ├── blogspy_predictor.spec
     ├── corporate.csv
-    ├── fix_csv.py
     ├── requirements.txt
     ├── searchmysite_urls.csv
     ├── seed_database.py
+    ├── logs/
+    │   └── predict_performance.jsonl
     ├── outputs/
     │   └── models/
     │       └── lgbm_final_model.joblib
     └── src/
         ├── __init__.py
-        ├── api.py
         ├── config.py
         ├── database.py
         ├── feature_engineering.py
-        ├── predict.py
         ├── settings.py
         ├── utils.py
         ├── worker.py
@@ -1912,40 +1911,6 @@ https://zoominfo.com
 
 
 ================================================
-File: fix_csv.py
-================================================
-# fix_csv.py
-import csv
-
-input_filename = 'corporate.csv'
-output_filename = 'corporate_fixed.csv'
-
-print(f"Reading from {input_filename} and writing to {output_filename}...")
-
-with open(input_filename, 'r', newline='') as infile, \
-        open(output_filename, 'w', newline='') as outfile:
-
-    reader = csv.reader(infile)
-    writer = csv.writer(outfile)
-
-    for row in reader:
-        if row:  # Make sure row is not empty
-            domain = row[0]
-            if not domain.startswith('http'):
-                # Create a full URL
-                full_url = f'https://{domain}'
-                writer.writerow([full_url])  # write the new full URL
-            else:
-                # write the original row if it's already a URL
-                writer.writerow(row)
-
-print("\nDone! A new file 'corporate_fixed.csv' has been created.")
-print("Now, replace the old file with the new one:")
-print("  mv corporate_fixed.csv corporate.csv")
-
-
-
-================================================
 File: requirements.txt
 ================================================
 # Core ML & Data
@@ -1970,6 +1935,8 @@ psycopg2-binary  # Postgres driver
 
 pydantic-settings
 validators
+# In requirements.txt
+plotext
 
 
 
@@ -5341,6 +5308,17 @@ if __name__ == "__main__":
 
 
 ================================================
+File: logs/predict_performance.jsonl
+================================================
+{"timestamp": "2025-07-12 23:15:23,020", "level": "INFO", "message": "Loading model: lgbm_final_model.joblib...", "logger_name": "predict"}
+{"timestamp": "2025-07-12 23:15:23,570", "level": "INFO", "message": "Model loaded successfully.", "logger_name": "predict"}
+{"timestamp": "2025-07-12 23:15:23,570", "level": "INFO", "message": "Analyzing URL: https://x.com/ClementDelangue/status/1944055485797167344", "logger_name": "predict"}
+{"timestamp": "2025-07-12 23:15:23,571", "level": "INFO", "message": "Fetching content from https://x.com/ClementDelangue/status/1944055485797167344...", "logger_name": "predict"}
+{"timestamp": "2025-07-12 23:15:24,703", "level": "ERROR", "message": "An unexpected error occurred while parsing https://x.com/ClementDelangue/status/1944055485797167344: Logger._log() got an unexpected keyword argument 'extra_data'", "logger_name": "predict"}
+
+
+
+================================================
 File: outputs/models/lgbm_final_model.joblib
 ================================================
 [Non-text file]
@@ -5349,82 +5327,6 @@ File: outputs/models/lgbm_final_model.joblib
 ================================================
 File: src/__init__.py
 ================================================
-
-
-
-================================================
-File: src/api.py
-================================================
-from fastapi import FastAPI, Depends, HTTPException, status
-from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
-from typing import List, Dict, Any
-import validators
-
-from src.database import get_db, bulk_insert_urls, URL, CrawlStatus
-from src.utils import get_logger
-
-app = FastAPI(title="BlogSpy Ingestion API & Cache")
-logger = get_logger(__name__)
-
-class URLPayload(BaseModel):
-    urls: List[str] = Field(..., min_length=1, description="A list of one or more URLs to process.")
-
-@app.post("/add-urls", status_code=status.HTTP_200_OK)
-def add_urls_to_queue(payload: URLPayload, db: Session = Depends(get_db)):
-    FINAL_STATUSES = {CrawlStatus.completed, CrawlStatus.irrelevant, CrawlStatus.failed}
-
-    response_data: List[Dict[str, Any]] = []
-    urls_to_queue = []
-
-    unique_urls = set(payload.urls)
-
-    for url_str in unique_urls:
-        if not validators.url(url_str):
-            response_data.append({"url": url_str, "status": "error", "detail": "Invalid URL format."})
-            continue
-
-        existing_record = db.query(URL).filter(URL.url == url_str).first()
-
-        if existing_record:
-            if existing_record.status in FINAL_STATUSES:
-                response_data.append({
-                    "url": url_str,
-                    "status": "cached",
-                    "result": {
-                        "classification": existing_record.classification,
-                        "confidence": existing_record.confidence,
-                        "processed_at": existing_record.processed_at,
-                        "db_status": existing_record.status.value
-                    }
-                })
-            else:
-                response_data.append({
-                    "url": url_str,
-                    "status": "already_queued",
-                    "detail": f"URL is currently in state: {existing_record.status.value}"
-                })
-        else:
-            urls_to_queue.append(url_str)
-            response_data.append({"url": url_str, "status": "newly_queued"})
-
-    if urls_to_queue:
-        try:
-            bulk_insert_urls(db, urls_to_queue)
-            logger.info(f"Successfully queued {len(urls_to_queue)} new URLs for classification.")
-        except Exception as e:
-            logger.error(f"Database error while queuing URLs: {e}", exc_info=True)
-            db.rollback()
-            for item in response_data:
-                if item["url"] in urls_to_queue:
-                    item["status"] = "error"
-                    item["detail"] = "Failed to queue due to a database error."
-
-    return {"results": response_data}
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
 
 
 
@@ -5511,6 +5413,8 @@ class URL(Base):
     description = Column(Text)
     error_message = Column(Text)
     processed_at = Column(DateTime(timezone=True))
+    # <-- ADDED FOR FAULT TOLERANCE
+    locked_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True),
                         nullable=False, server_default=func.now())
 
@@ -5656,139 +5560,6 @@ def extract_content_features(text_contents: pd.Series) -> pd.DataFrame:
 
 
 ================================================
-File: src/predict.py
-================================================
-# src/predict.py
-
-from src.utils import setup_logging
-from src.config import MODELS_DIR, ID_TO_LABEL, REQUEST_TIMEOUT, REQUEST_HEADERS
-from src.feature_engineering import extract_url_features, extract_structural_features, extract_content_features
-import sys
-import pathlib
-import argparse
-import joblib
-import pandas as pd
-import requests
-from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
-import warnings
-import scipy.sparse as sp
-import time
-
-# --- Path and Logger Setup ---
-project_root = pathlib.Path(__file__).parent.parent
-sys.path.append(str(project_root))
-logger = setup_logging('predict')
-
-
-def fetch_and_parse(url: str) -> dict | None:
-    """ Fetches and parses a URL, returning a dictionary of contents. """
-    logger.info(f"Fetching content from {url}...")
-    fetch_start_time = time.time()
-    try:
-        response = requests.get(
-            url, timeout=REQUEST_TIMEOUT, headers=REQUEST_HEADERS)
-        response.raise_for_status()
-        html_content = response.text
-
-        warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
-        soup = BeautifulSoup(html_content, 'lxml')
-        for script_or_style in soup(['script', 'style']):
-            script_or_style.decompose()
-        text_content = ' '.join(soup.stripped_strings)
-
-        fetch_duration = time.time() - fetch_start_time
-        logger.debug("Content fetched successfully", extra_data={
-            "event": "fetch_success", "url": url, "duration_s": fetch_duration
-        })
-
-        return {"url": url, "html_content": html_content, "text_content": text_content}
-    except requests.RequestException as e:
-        logger.error(f"Failed to fetch or process {url}: {e}")
-        return None
-    except Exception as e:
-        logger.error(f"An unexpected error occurred while parsing {url}: {e}")
-        return None
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Classify websites.")
-    parser.add_argument('urls', nargs='+',
-                        help="One or more full URLs to classify")
-    parser.add_argument('--model', type=str, default='main',
-                        help="The model to use (e.g., 'main').")
-    args = parser.parse_args()
-
-    model_filename = 'lgbm_final_model.joblib'
-    model_path = MODELS_DIR / model_filename
-
-    if not model_path.exists():
-        logger.error(
-            f"Model file not found at {model_path}. Please ensure it is in the correct directory.")
-        sys.exit(1)
-
-    logger.info(f"Loading model: {model_filename}...")
-    artifact = joblib.load(model_path)
-    logger.info("Model loaded successfully.")
-
-    for url in args.urls:
-        print("-" * 50)
-        logger.info(f"Analyzing URL: {url}")
-
-        site_data = fetch_and_parse(url)
-        if site_data is None:
-            print(f"  ❌ Could not analyze {url}. Skipping.")
-            continue
-
-        try:
-            predict_start_time = time.time()
-            vectorizer = artifact['vectorizer']
-            model = artifact['model']
-
-            df = pd.DataFrame([site_data])
-
-            txt_features = vectorizer.transform(df["text_content"].fillna(""))
-            url_features = extract_url_features(
-                df["url"]).to_numpy(dtype="float32")
-            structural_features = extract_structural_features(
-                df["html_content"]).to_numpy(dtype="float32")
-            content_features = extract_content_features(
-                df["text_content"]).to_numpy(dtype="float32")
-
-            features = sp.hstack([
-                txt_features, sp.csr_matrix(url_features),
-                sp.csr_matrix(structural_features), sp.csr_matrix(
-                    content_features)
-            ], format="csr")
-
-            probabilities = model.predict(features)
-            prediction_id = (probabilities > 0.5).astype(int)[0]
-            confidence = probabilities[0] if prediction_id == 1 else 1 - \
-                probabilities[0]
-
-            predict_duration = time.time() - predict_start_time
-            logger.debug("Prediction complete", extra_data={
-                "event": "predict_success", "url": url, "duration_s": predict_duration
-            })
-
-            label = ID_TO_LABEL[prediction_id]
-            print(f"\n✅ Results for: {url}")
-            print(f"  Prediction: {label.upper()}")
-            print(f"  Confidence: {confidence:.2%}")
-
-        except Exception as e:
-            logger.error(
-                f"An error occurred during prediction for {url}: {e}", exc_info=True)
-            print(f"  ❌ Failed to predict for {url}.")
-
-    print("-" * 50)
-
-
-if __name__ == "__main__":
-    main()
-
-
-
-================================================
 File: src/settings.py
 ================================================
 # src/settings.py
@@ -5909,6 +5680,7 @@ File: src/worker.py
 
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import case, cast
 from src.config import MODELS_DIR, REQUEST_HEADERS
 from src.feature_engineering import extract_url_features, extract_structural_features, extract_content_features
 from src.database import SessionLocal, URL, URLEdge, CrawlStatus, RenderingType
@@ -5924,6 +5696,7 @@ import psutil
 import time
 import os
 import threading
+import queue  # - NEW: Import the queue module
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
 from collections import defaultdict
@@ -5936,6 +5709,7 @@ sys.path.append(str(project_root))
 MODEL_PATH = MODELS_DIR / 'lgbm_final_model.joblib'
 BATCH_SIZE = 500
 SLEEP_INTERVAL = 5
+BATCH_WRITE_INTERVAL = 10  # - NEW: Interval for the DB writer thread to run
 
 IGNORE_EXTENSIONS = (
     '.pdf', '.jpg', '.jpeg', '.png', '.gif', '.zip', '.rar', '.exe',
@@ -5947,15 +5721,18 @@ logger = setup_logging('worker')
 
 thread_local_session = threading.local()
 
+# - NEW: A single, thread-safe queue to batch link insertions.
+# The queue will hold tuples of: (source_url_id, list_of_new_link_dictionaries)
+link_batch_queue = queue.Queue()
+
 
 def get_session():
     if not hasattr(thread_local_session, "session"):
         thread_local_session.session = requests.Session()
     return thread_local_session.session
 
+
 # --- Helper Functions (Unchanged) ---
-
-
 def get_performance_metrics():
     return {"cpu_percent": psutil.cpu_percent(interval=0.1), "memory_rss_mb": round(psutil.Process().memory_info().rss / (1024 * 1024), 2)}
 
@@ -6016,26 +5793,28 @@ def extract_links(html: str, base_url: str) -> list[str]:
     return list(links)
 
 
-def bulk_insert_with_status(db: Session, records: list[dict]):
-    if not records:
-        return
-    stmt = pg_insert(URL).values(
-        records).on_conflict_do_nothing(index_elements=['url'])
-    db.execute(stmt)
-
-# --- NEW HELPER FOR CRAWL LOGIC ---
+# - MODIFIED: This function is no longer needed here as its logic is in the writer thread.
+# def bulk_insert_with_status(db: Session, records: list[dict]): ...
 
 
+# - MODIFIED: This function is now a "producer". It discovers links and adds them
+# to the shared queue instead of writing to the DB itself.
 def _perform_crawl_logic(db_session: Session, url_record: URL, content: dict):
     new_links = extract_links(content['html_content'], content["final_url"])
+    new_links.sort()  # Sort to prevent deadlocks in the DB *read* stage.
+
     if not new_links:
         return
+
+    # --- This part still READS from the DB to avoid queueing duplicates ---
     links_by_netloc = defaultdict(list)
     for link in new_links:
         if nloc := urlparse(link).netloc:
             links_by_netloc[nloc].append(link)
+
     existing_urls_q = db_session.query(URL.url).filter(URL.url.in_(new_links))
     existing_urls = {res.url for res in existing_urls_q}
+
     personal_statuses = {CrawlStatus.pending_crawl,
                          CrawlStatus.crawling, CrawlStatus.completed}
     domain_decisions_q = db_session.query(URL.netloc, URL.status).filter(
@@ -6043,47 +5822,37 @@ def _perform_crawl_logic(db_session: Session, url_record: URL, content: dict):
         URL.status.in_(personal_statuses | {CrawlStatus.irrelevant})
     ).distinct(URL.netloc)
     domain_decisions = {res.netloc: res.status for res in domain_decisions_q}
-    to_insert_irrelevant, to_insert_pending_crawl, to_insert_pending_classification = [], [], []
+
+    # --- This part now BUILDS lists, but does not write them ---
+    links_to_add_to_db = []
     for netloc, links in links_by_netloc.items():
         for link in links:
             if link in existing_urls:
                 continue
+
+            # Determine the status for the new link
+            link_status = CrawlStatus.pending_classification
             if netloc == urlparse(url_record.url).netloc:
-                to_insert_pending_crawl.append(
-                    {"url": link, "netloc": netloc, "status": CrawlStatus.pending_crawl})
+                link_status = CrawlStatus.pending_crawl
             elif netloc in domain_decisions:
                 decision = domain_decisions[netloc]
                 if decision == CrawlStatus.irrelevant:
-                    to_insert_irrelevant.append(
-                        {"url": link, "netloc": netloc, "status": CrawlStatus.irrelevant})
+                    link_status = CrawlStatus.irrelevant
                 elif decision in personal_statuses:
-                    to_insert_pending_crawl.append(
-                        {"url": link, "netloc": netloc, "status": CrawlStatus.pending_crawl})
-            else:
-                to_insert_pending_classification.append(
-                    {"url": link, "netloc": netloc, "status": CrawlStatus.pending_classification})
-    bulk_insert_with_status(db_session, to_insert_irrelevant)
-    bulk_insert_with_status(db_session, to_insert_pending_classification)
-    bulk_insert_with_status(db_session, to_insert_pending_crawl)
-    db_session.flush()
-    all_inserted_links = [r['url'] for r in to_insert_irrelevant +
-                          to_insert_pending_crawl + to_insert_pending_classification]
-    if all_inserted_links:
-        dest_ids_q = db_session.query(URL.id).filter(
-            URL.url.in_(all_inserted_links))
-        dest_ids = [res.id for res in dest_ids_q]
-        edge_values = [{"source_url_id": url_record.id,
-                        "dest_url_id": dest_id} for dest_id in dest_ids]
-        if edge_values:
-            edge_stmt = pg_insert(URLEdge).values(
-                edge_values).on_conflict_do_nothing()
-            db_session.execute(edge_stmt)
-    logger.info(
-        f"✅ (From Classify) Crawl logic for {url_record.url} added {len(all_inserted_links)} new URLs.")
+                    link_status = CrawlStatus.pending_crawl
 
-# --- Task Processing Functions (FIXED) ---
+            links_to_add_to_db.append(
+                {"url": link, "netloc": netloc, "status": link_status})
+
+    # --- The critical change: Put the work onto the queue ---
+    if links_to_add_to_db:
+        # Pass the source ID and the list of link-dictionaries to the writer.
+        link_batch_queue.put((url_record.id, links_to_add_to_db))
+        logger.info(
+            f"✅ Queued {len(links_to_add_to_db)} new URLs for batch insertion (from {url_record.url})")
 
 
+# --- Task Processing Functions (Unchanged, they just call the modified _perform_crawl_logic) ---
 def process_classification_task(db_session: Session, url_record: URL, artifact: dict):
     try:
         content = fetch_and_parse_content(url_record.url)
@@ -6110,7 +5879,7 @@ def process_classification_task(db_session: Session, url_record: URL, artifact: 
         url_record.processed_at = datetime.now(timezone.utc)
         url_record.title = content.get('title')
         url_record.description = content.get('description')
-        url_record.content = content.get('text_content')  # <<< FIX IS HERE
+        url_record.content = content.get('text_content')
 
         if is_personal_blog:
             _perform_crawl_logic(db_session, url_record, content)
@@ -6144,16 +5913,15 @@ def process_crawl_task(db_session: Session, url_record: URL):
         url_record.processed_at = datetime.now(timezone.utc)
         url_record.title = content.get('title')
         url_record.description = content.get('description')
-        url_record.content = content.get('text_content')  # <<< FIX IS HERE
+        url_record.content = content.get('text_content')
 
     except Exception as e:
         logger.error(f"Failed to crawl {url_record.url}: {e}", exc_info=False)
         url_record.status = CrawlStatus.failed
         url_record.error_message = str(e)
 
+
 # --- Bulletproof Thread Wrapper (Unchanged) ---
-
-
 def run_task_in_thread(task_func, job_id: int, *args):
     db_session = SessionLocal()
     try:
@@ -6161,9 +5929,7 @@ def run_task_in_thread(task_func, job_id: int, *args):
         if not job_to_process:
             logger.warning(f"Job with ID {job_id} not found in thread.")
             return
-
         task_func(db_session, job_to_process, *args)
-
         db_session.commit()
     except Exception as e:
         db_session.rollback()
@@ -6172,9 +5938,111 @@ def run_task_in_thread(task_func, job_id: int, *args):
     finally:
         db_session.close()
 
-# --- Main Loop (Unchanged) ---
+
+# --- "Reaper" Function for Fault Tolerance (Unchanged) ---
+def reset_stalled_jobs(db_session: Session):
+    try:
+        timeout_interval = 15
+        smart_reset_status = case(
+            (URL.status == 'classifying', cast(
+                'pending_classification', URL.status.type)),
+            (URL.status == 'crawling',    cast('pending_crawl', URL.status.type)),
+        )
+        stalled_jobs_query = db_session.query(URL).filter(
+            URL.status.in_(['classifying', 'crawling']),
+            URL.locked_at < (datetime.now(timezone.utc) -
+                             pd.Timedelta(minutes=timeout_interval))
+        )
+        rows_reset = stalled_jobs_query.update(
+            {'status': smart_reset_status, 'locked_at': None},
+            synchronize_session=False
+        )
+        if rows_reset > 0:
+            db_session.commit()
+            logger.warning(
+                f"Reaper: Reset {rows_reset} stalled jobs to their pending state.")
+        else:
+            db_session.rollback()
+    except Exception as e:
+        logger.error(
+            f"Reaper: Failed to reset stalled jobs: {e}", exc_info=True)
+        db_session.rollback()
 
 
+# --- NEW: The Database Writer Thread (Consumer) ---
+def database_writer_thread():
+    """
+    A dedicated thread that runs in the background, consuming links from the
+    queue and performing massive, efficient bulk writes to the database.
+    """
+    while True:
+        time.sleep(BATCH_WRITE_INTERVAL)
+
+        # Step 1: Drain the queue to get all the work for this batch
+        batch_items = []
+        while not link_batch_queue.empty():
+            try:
+                batch_items.append(link_batch_queue.get_nowait())
+            except queue.Empty:
+                break  # Should not happen, but for safety
+
+        if not batch_items:
+            continue
+
+        db = SessionLocal()
+        try:
+            # Step 2: Consolidate all discovered links into a single set
+            all_link_records = []
+            for _, link_list in batch_items:
+                all_link_records.extend(link_list)
+
+            if not all_link_records:
+                db.close()
+                continue
+
+            logger.info(
+                f"DB-Writer: Processing batch of {len(all_link_records)} links from {len(batch_items)} sources.")
+
+            # Step 3: Perform one massive bulk insert for all new URLs
+            url_insert_stmt = pg_insert(URL).values(
+                all_link_records).on_conflict_do_nothing(index_elements=['url'])
+            db.execute(url_insert_stmt)
+
+            # Step 4: Get the database IDs for all links we just tried to insert
+            all_urls_in_batch = {record['url'] for record in all_link_records}
+            id_results = db.query(URL.id, URL.url).filter(
+                URL.url.in_(all_urls_in_batch)).all()
+            url_to_id_map = {url: url_id for url_id, url in id_results}
+
+            # Step 5: Prepare all the edge records for insertion
+            edge_values_to_insert = []
+            for source_id, link_list in batch_items:
+                for link_record in link_list:
+                    dest_url = link_record['url']
+                    if dest_url in url_to_id_map:
+                        dest_id = url_to_id_map[dest_url]
+                        edge_values_to_insert.append(
+                            {"source_url_id": source_id, "dest_url_id": dest_id})
+
+            # Step 6: Perform one massive bulk insert for all new edges
+            if edge_values_to_insert:
+                edge_insert_stmt = pg_insert(URLEdge).values(
+                    edge_values_to_insert).on_conflict_do_nothing()
+                db.execute(edge_insert_stmt)
+
+            db.commit()
+            logger.info(
+                f"DB-Writer: Successfully committed batch. {len(edge_values_to_insert)} new edges created.")
+
+        except Exception as e:
+            logger.error(
+                f"DB-Writer: An error occurred during batch write. Rolling back. Error: {e}", exc_info=True)
+            db.rollback()
+        finally:
+            db.close()
+
+
+# --- Main Loop (Modified to launch the writer thread) ---
 def main():
     logger.info("--- Starting BlogSpy Worker ---")
     try:
@@ -6185,9 +6053,16 @@ def main():
         sys.exit(1)
 
     cpu_cores = os.cpu_count() or 1
-    max_workers = min(BATCH_SIZE * 2, cpu_cores * 10)
+    max_workers = min(BATCH_SIZE * 2, cpu_cores * 5)
     logger.info(
         f"Initialized with BATCH_SIZE={BATCH_SIZE} and max_workers={max_workers}.")
+
+    # --- NEW: Create and start the background database writer thread ---
+    writer_thread = threading.Thread(
+        target=database_writer_thread, daemon=True)
+    writer_thread.start()
+    logger.info("Database writer thread started.")
+    # ------------------------------------------------------------------
 
     while True:
         logger.debug("Starting new worker cycle", extra={
@@ -6195,6 +6070,8 @@ def main():
         db = SessionLocal()
         job_processed_in_cycle = False
         try:
+            reset_stalled_jobs(db)
+
             for job_type, status_from, status_to, process_func, args in [
                 ("crawling", CrawlStatus.pending_crawl,
                  CrawlStatus.crawling, process_crawl_task, []),
@@ -6204,13 +6081,18 @@ def main():
                 job_ids_query = db.query(URL.id).filter(
                     URL.status == status_from).with_for_update(skip_locked=True).limit(BATCH_SIZE)
                 job_ids = [id_tuple[0] for id_tuple in job_ids_query.all()]
+
                 if job_ids:
                     job_processed_in_cycle = True
                     db.query(URL).filter(URL.id.in_(job_ids)).update(
-                        {'status': status_to}, synchronize_session=False)
+                        {'status': status_to,
+                            'locked_at': datetime.now(timezone.utc)},
+                        synchronize_session=False
+                    )
                     db.commit()
                     logger.info(
                         f"Locked and dispatched {len(job_ids)} {job_type} jobs.")
+
                     with ThreadPoolExecutor(max_workers=max_workers) as executor:
                         future_to_job_id = {executor.submit(
                             run_task_in_thread, process_func, job_id, *args): job_id for job_id in job_ids}
@@ -6282,14 +6164,15 @@ CREATE TABLE urls (
     description    TEXT,
     error_message  TEXT,
     processed_at   TIMESTAMPTZ,
+    locked_at      TIMESTAMPTZ, -- ADDED FOR FAULT TOLERANCE
     created_at     TIMESTAMPTZ    NOT NULL DEFAULT NOW()
 );
 
--- Indexes remain the same
+-- Indexes for performance
 CREATE INDEX idx_urls_status ON urls (status) WHERE status IN ('pending_classification', 'pending_crawl');
 CREATE INDEX idx_urls_netloc_status ON urls (netloc, status);
 
--- Edge table remains the same
+-- Edge table for linking URLs
 CREATE TABLE url_edges (
     source_url_id INTEGER NOT NULL REFERENCES urls(id) ON DELETE CASCADE,
     dest_url_id   INTEGER NOT NULL REFERENCES urls(id) ON DELETE CASCADE,
