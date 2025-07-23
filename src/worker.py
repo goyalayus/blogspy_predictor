@@ -35,7 +35,7 @@ SLEEP_INTERVAL = 5
 BATCH_WRITE_INTERVAL = 10
 
 # --- NEW: Configuration for Crawling Rules ---
-MAX_URLS_PER_NETLOC = 200
+MAX_URLS_PER_NETLOC = 130
 RESTRICTED_TLDS = ('.org', '.edu')
 ALLOWED_PATH_PREFIXES = ('/blog')
 # ---------------------------------------------

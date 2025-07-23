@@ -7,7 +7,6 @@ Directory structure:
     ├── searchmysite_urls.csv
     ├── seed_database.py
     ├── logs/
-    │   └── predict_performance.jsonl
     ├── outputs/
     │   └── models/
     │       └── lgbm_final_model.joblib
@@ -5307,16 +5306,6 @@ if __name__ == "__main__":
 
 
 
-================================================
-File: logs/predict_performance.jsonl
-================================================
-{"timestamp": "2025-07-12 23:15:23,020", "level": "INFO", "message": "Loading model: lgbm_final_model.joblib...", "logger_name": "predict"}
-{"timestamp": "2025-07-12 23:15:23,570", "level": "INFO", "message": "Model loaded successfully.", "logger_name": "predict"}
-{"timestamp": "2025-07-12 23:15:23,570", "level": "INFO", "message": "Analyzing URL: https://x.com/ClementDelangue/status/1944055485797167344", "logger_name": "predict"}
-{"timestamp": "2025-07-12 23:15:23,571", "level": "INFO", "message": "Fetching content from https://x.com/ClementDelangue/status/1944055485797167344...", "logger_name": "predict"}
-{"timestamp": "2025-07-12 23:15:24,703", "level": "ERROR", "message": "An unexpected error occurred while parsing https://x.com/ClementDelangue/status/1944055485797167344: Logger._log() got an unexpected keyword argument 'extra_data'", "logger_name": "predict"}
-
-
 
 ================================================
 File: outputs/models/lgbm_final_model.joblib
@@ -5679,6 +5668,7 @@ File: src/worker.py
 # src/worker.py
 
 from sqlalchemy.orm import Session
+from sqlalchemy import func  # <-- NEW: Import func for COUNT
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy import case, cast
 from src.config import MODELS_DIR, REQUEST_HEADERS
@@ -5696,7 +5686,7 @@ import psutil
 import time
 import os
 import threading
-import queue  # - NEW: Import the queue module
+import queue
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
 from collections import defaultdict
@@ -5709,7 +5699,13 @@ sys.path.append(str(project_root))
 MODEL_PATH = MODELS_DIR / 'lgbm_final_model.joblib'
 BATCH_SIZE = 500
 SLEEP_INTERVAL = 5
-BATCH_WRITE_INTERVAL = 10  # - NEW: Interval for the DB writer thread to run
+BATCH_WRITE_INTERVAL = 10
+
+# --- NEW: Configuration for Crawling Rules ---
+MAX_URLS_PER_NETLOC = 200
+RESTRICTED_TLDS = ('.org', '.edu')
+ALLOWED_PATH_PREFIXES = ('/blog')
+# ---------------------------------------------
 
 IGNORE_EXTENSIONS = (
     '.pdf', '.jpg', '.jpeg', '.png', '.gif', '.zip', '.rar', '.exe',
@@ -5720,9 +5716,6 @@ IGNORE_EXTENSIONS = (
 logger = setup_logging('worker')
 
 thread_local_session = threading.local()
-
-# - NEW: A single, thread-safe queue to batch link insertions.
-# The queue will hold tuples of: (source_url_id, list_of_new_link_dictionaries)
 link_batch_queue = queue.Queue()
 
 
@@ -5793,40 +5786,69 @@ def extract_links(html: str, base_url: str) -> list[str]:
     return list(links)
 
 
-# - MODIFIED: This function is no longer needed here as its logic is in the writer thread.
-# def bulk_insert_with_status(db: Session, records: list[dict]): ...
-
-
-# - MODIFIED: This function is now a "producer". It discovers links and adds them
-# to the shared queue instead of writing to the DB itself.
+# --- MODIFIED: This function now contains all the new filtering logic ---
 def _perform_crawl_logic(db_session: Session, url_record: URL, content: dict):
     new_links = extract_links(content['html_content'], content["final_url"])
-    new_links.sort()  # Sort to prevent deadlocks in the DB *read* stage.
+    new_links.sort()
 
     if not new_links:
         return
 
-    # --- This part still READS from the DB to avoid queueing duplicates ---
+    # --- Step 1: Group links and prepare for efficient querying ---
     links_by_netloc = defaultdict(list)
     for link in new_links:
         if nloc := urlparse(link).netloc:
             links_by_netloc[nloc].append(link)
 
+    all_netlocs_found = list(links_by_netloc.keys())
+
+    # --- Step 2: Efficiently get existing link counts for all relevant netlocs ---
+    netloc_count_query = db_session.query(
+        URL.netloc, func.count(URL.id)
+    ).filter(
+        URL.netloc.in_(all_netlocs_found)
+    ).group_by(URL.netloc)
+
+    # Use defaultdict to simplify logic later
+    netloc_counts = defaultdict(
+        int, {netloc: count for netloc, count in netloc_count_query})
+
+    # --- Step 3: Get existing URLs and domain decisions in batch ---
     existing_urls_q = db_session.query(URL.url).filter(URL.url.in_(new_links))
     existing_urls = {res.url for res in existing_urls_q}
 
     personal_statuses = {CrawlStatus.pending_crawl,
                          CrawlStatus.crawling, CrawlStatus.completed}
     domain_decisions_q = db_session.query(URL.netloc, URL.status).filter(
-        URL.netloc.in_(links_by_netloc.keys()),
+        URL.netloc.in_(all_netlocs_found),
         URL.status.in_(personal_statuses | {CrawlStatus.irrelevant})
     ).distinct(URL.netloc)
     domain_decisions = {res.netloc: res.status for res in domain_decisions_q}
 
-    # --- This part now BUILDS lists, but does not write them ---
+    # --- Step 4: Apply rules and build lists for insertion ---
     links_to_add_to_db = []
+    logged_full_domains = set()  # To prevent log spam for full domains
+
     for netloc, links in links_by_netloc.items():
         for link in links:
+            # --- RULE 1: Check if the netloc is already full ---
+            if netloc_counts[netloc] >= MAX_URLS_PER_NETLOC:
+                if netloc not in logged_full_domains:
+                    logger.info(
+                        f"Netloc '{netloc}' is full ({netloc_counts[netloc]}/{MAX_URLS_PER_NETLOC}). Skipping new links.")
+                    logged_full_domains.add(netloc)
+                continue  # Skip this link and all others from this netloc
+
+            # --- RULE 2: Check for restricted TLDs and allowed paths ---
+            parsed_link = urlparse(link)
+            if netloc.endswith(RESTRICTED_TLDS):
+                path = parsed_link.path.lower()
+                if not any(path.startswith(p) for p in ALLOWED_PATH_PREFIXES) and path not in ('', '/'):
+                    logger.debug(
+                        f"Skipping restricted link (TLD/path mismatch): {link}")
+                    continue  # Skip this link
+
+            # --- Existing check for duplicates ---
             if link in existing_urls:
                 continue
 
@@ -5844,15 +5866,17 @@ def _perform_crawl_logic(db_session: Session, url_record: URL, content: dict):
             links_to_add_to_db.append(
                 {"url": link, "netloc": netloc, "status": link_status})
 
+            # CRUCIAL: Increment the local counter to respect the limit within this batch
+            netloc_counts[netloc] += 1
+
     # --- The critical change: Put the work onto the queue ---
     if links_to_add_to_db:
-        # Pass the source ID and the list of link-dictionaries to the writer.
         link_batch_queue.put((url_record.id, links_to_add_to_db))
         logger.info(
             f"✅ Queued {len(links_to_add_to_db)} new URLs for batch insertion (from {url_record.url})")
 
 
-# --- Task Processing Functions (Unchanged, they just call the modified _perform_crawl_logic) ---
+# --- Task Processing Functions (Unchanged) ---
 def process_classification_task(db_session: Session, url_record: URL, artifact: dict):
     try:
         content = fetch_and_parse_content(url_record.url)
@@ -5969,7 +5993,7 @@ def reset_stalled_jobs(db_session: Session):
         db_session.rollback()
 
 
-# --- NEW: The Database Writer Thread (Consumer) ---
+# --- Database Writer Thread (Unchanged) ---
 def database_writer_thread():
     """
     A dedicated thread that runs in the background, consuming links from the
@@ -5977,44 +6001,31 @@ def database_writer_thread():
     """
     while True:
         time.sleep(BATCH_WRITE_INTERVAL)
-
-        # Step 1: Drain the queue to get all the work for this batch
         batch_items = []
         while not link_batch_queue.empty():
             try:
                 batch_items.append(link_batch_queue.get_nowait())
             except queue.Empty:
-                break  # Should not happen, but for safety
-
+                break
         if not batch_items:
             continue
-
         db = SessionLocal()
         try:
-            # Step 2: Consolidate all discovered links into a single set
             all_link_records = []
             for _, link_list in batch_items:
                 all_link_records.extend(link_list)
-
             if not all_link_records:
                 db.close()
                 continue
-
             logger.info(
                 f"DB-Writer: Processing batch of {len(all_link_records)} links from {len(batch_items)} sources.")
-
-            # Step 3: Perform one massive bulk insert for all new URLs
             url_insert_stmt = pg_insert(URL).values(
                 all_link_records).on_conflict_do_nothing(index_elements=['url'])
             db.execute(url_insert_stmt)
-
-            # Step 4: Get the database IDs for all links we just tried to insert
             all_urls_in_batch = {record['url'] for record in all_link_records}
             id_results = db.query(URL.id, URL.url).filter(
                 URL.url.in_(all_urls_in_batch)).all()
             url_to_id_map = {url: url_id for url_id, url in id_results}
-
-            # Step 5: Prepare all the edge records for insertion
             edge_values_to_insert = []
             for source_id, link_list in batch_items:
                 for link_record in link_list:
@@ -6023,17 +6034,13 @@ def database_writer_thread():
                         dest_id = url_to_id_map[dest_url]
                         edge_values_to_insert.append(
                             {"source_url_id": source_id, "dest_url_id": dest_id})
-
-            # Step 6: Perform one massive bulk insert for all new edges
             if edge_values_to_insert:
                 edge_insert_stmt = pg_insert(URLEdge).values(
                     edge_values_to_insert).on_conflict_do_nothing()
                 db.execute(edge_insert_stmt)
-
             db.commit()
             logger.info(
                 f"DB-Writer: Successfully committed batch. {len(edge_values_to_insert)} new edges created.")
-
         except Exception as e:
             logger.error(
                 f"DB-Writer: An error occurred during batch write. Rolling back. Error: {e}", exc_info=True)
@@ -6042,7 +6049,7 @@ def database_writer_thread():
             db.close()
 
 
-# --- Main Loop (Modified to launch the writer thread) ---
+# --- Main Loop (Unchanged) ---
 def main():
     logger.info("--- Starting BlogSpy Worker ---")
     try:
@@ -6057,12 +6064,10 @@ def main():
     logger.info(
         f"Initialized with BATCH_SIZE={BATCH_SIZE} and max_workers={max_workers}.")
 
-    # --- NEW: Create and start the background database writer thread ---
     writer_thread = threading.Thread(
         target=database_writer_thread, daemon=True)
     writer_thread.start()
     logger.info("Database writer thread started.")
-    # ------------------------------------------------------------------
 
     while True:
         logger.debug("Starting new worker cycle", extra={
@@ -6071,7 +6076,6 @@ def main():
         job_processed_in_cycle = False
         try:
             reset_stalled_jobs(db)
-
             for job_type, status_from, status_to, process_func, args in [
                 ("crawling", CrawlStatus.pending_crawl,
                  CrawlStatus.crawling, process_crawl_task, []),
@@ -6081,7 +6085,6 @@ def main():
                 job_ids_query = db.query(URL.id).filter(
                     URL.status == status_from).with_for_update(skip_locked=True).limit(BATCH_SIZE)
                 job_ids = [id_tuple[0] for id_tuple in job_ids_query.all()]
-
                 if job_ids:
                     job_processed_in_cycle = True
                     db.query(URL).filter(URL.id.in_(job_ids)).update(
@@ -6092,7 +6095,6 @@ def main():
                     db.commit()
                     logger.info(
                         f"Locked and dispatched {len(job_ids)} {job_type} jobs.")
-
                     with ThreadPoolExecutor(max_workers=max_workers) as executor:
                         future_to_job_id = {executor.submit(
                             run_task_in_thread, process_func, job_id, *args): job_id for job_id in job_ids}
@@ -6108,7 +6110,6 @@ def main():
                                 pass
                     logger.info(
                         f"Batch of {len(job_ids)} {job_type} jobs complete.")
-
             if not job_processed_in_cycle:
                 logger.info(
                     f"No pending jobs in this cycle. Sleeping for {SLEEP_INTERVAL} seconds.")
