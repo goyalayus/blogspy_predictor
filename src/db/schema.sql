@@ -28,6 +28,7 @@ CREATE TABLE urls (
     title          TEXT,
     description    TEXT,
     error_message  TEXT,
+    pagerank       DOUBLE PRECISION DEFAULT 0.0, -- ADDED FOR PAGERANK SCORING
     processed_at   TIMESTAMPTZ,
     locked_at      TIMESTAMPTZ, -- ADDED FOR FAULT TOLERANCE
     created_at     TIMESTAMPTZ    NOT NULL DEFAULT NOW()
