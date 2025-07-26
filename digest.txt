@@ -1,29 +1,30 @@
 Directory structure:
 └── blogspy_predictor/
     ├── README.md
-    ├── blogspy_predictor.spec
     ├── corporate.csv
     ├── requirements.txt
     ├── searchmysite_urls.csv
     ├── seed_database.py
-    ├── logs/
     ├── outputs/
     │   └── models/
     │       └── lgbm_final_model.joblib
     └── src/
         ├── __init__.py
+        ├── api.py
         ├── config.py
         ├── database.py
         ├── feature_engineering.py
         ├── settings.py
         ├── utils.py
-        ├── worker.py
-        ├── __pycache__/
-        └── db/
-            └── schema.sql
+        ├── db/
+        │   └── schema.sql
+        └── woker/
+            ├── go.mod
+            ├── go.sum
+            └── main.go
 
 ================================================
-File: README.md
+FILE: README.md
 ================================================
 
 # BlogSpy Predictor
@@ -186,51 +187,7 @@ This project is licensed under the MIT License. See the `LICENSE` file for detai
 
 
 ================================================
-File: blogspy_predictor.spec
-================================================
-# -*- mode: python ; coding: utf-8 -*-
-
-
-a = Analysis(
-    ['src/predict.py'],
-    pathex=[],
-    binaries=[],
-    datas=[('outputs/models/lgbm_final_model.joblib', 'outputs/models')],
-    hiddenimports=['sklearn.feature_extraction.text', 'lightgbm'],
-    hookspath=[],
-    hooksconfig={},
-    runtime_hooks=[],
-    excludes=[],
-    noarchive=False,
-    optimize=0,
-)
-pyz = PYZ(a.pure)
-
-exe = EXE(
-    pyz,
-    a.scripts,
-    a.binaries,
-    a.datas,
-    [],
-    name='blogspy_predictor',
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    runtime_tmpdir='.',
-    console=True,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-)
-
-
-
-================================================
-File: corporate.csv
+FILE: corporate.csv
 ================================================
 https://123rf.com
 https://1mg.com
@@ -1910,37 +1867,30 @@ https://zoominfo.com
 
 
 ================================================
-File: requirements.txt
+FILE: requirements.txt
 ================================================
-# Core ML & Data
 scikit-learn
 scipy
 pandas
 numpy
 joblib
-lightgbm # Important: joblib needs this to load the booster object
-psutil # NEW: For system resource monitoring
-
-# Web Scraping
+lightgbm
+psutil
 requests
 beautifulsoup4
 lxml
-
 fastapi
 uvicorn[standard]
-
 sqlalchemy
-psycopg2-binary  # Postgres driver
-
+psycopg2-binary
 pydantic-settings
 validators
-# In requirements.txt
 plotext
 
 
 
 ================================================
-File: searchmysite_urls.csv
+FILE: searchmysite_urls.csv
 ================================================
 Site URL
 https://www.shayon.dev/
@@ -5185,7 +5135,7 @@ https://michael-lewis.com/
 
 
 ================================================
-File: seed_database.py
+FILE: seed_database.py
 ================================================
 from src.database import SessionLocal, URL, CrawlStatus
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -5306,21 +5256,206 @@ if __name__ == "__main__":
 
 
 
-
 ================================================
-File: outputs/models/lgbm_final_model.joblib
+FILE: outputs/models/lgbm_final_model.joblib
 ================================================
 [Non-text file]
 
 
 ================================================
-File: src/__init__.py
+FILE: src/__init__.py
 ================================================
 
 
 
 ================================================
-File: src/config.py
+FILE: src/api.py
+================================================
+import joblib
+import pandas as pd
+import scipy.sparse as sp
+import uvicorn
+from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel, Field
+import pathlib
+import sys
+import os
+import time
+import logging
+from contextlib import asynccontextmanager
+
+project_root = pathlib.Path(__file__).parent.parent
+sys.path.append(str(project_root))
+
+from src.feature_engineering import (
+    extract_url_features,
+    extract_structural_features,
+    extract_content_features,
+)
+from src.config import MODELS_DIR
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    stream=sys.stdout,
+)
+logger = logging.getLogger(__name__)
+
+MODEL_PATH = os.getenv("MODEL_PATH", str(MODELS_DIR / "lgbm_final_model.joblib"))
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("--- Application startup sequence initiated ---")
+    logger.info(f"Attempting to load model artifact from: {MODEL_PATH}")
+    try:
+        app.state.artifact = joblib.load(MODEL_PATH)
+        if "vectorizer" not in app.state.artifact or "model" not in app.state.artifact:
+            raise ValueError("Model artifact is missing 'vectorizer' or 'model' key.")
+        logger.info("Model artifact loaded and verified successfully.")
+    except FileNotFoundError:
+        logger.error(
+            f"FATAL: Model file not found at '{MODEL_PATH}'. The API will not be able to serve predictions."
+        )
+        app.state.artifact = None
+    except Exception:
+        logger.error(
+            f"FATAL: An unhandled exception occurred during model loading.",
+            exc_info=True,
+        )
+        app.state.artifact = None
+    logger.info("--- Application startup sequence complete ---")
+
+    yield
+
+    logger.info("--- Application shutdown sequence initiated ---")
+    app.state.artifact = None
+    logger.info("Model artifact cleared from memory.")
+    logger.info("--- Application shutdown sequence complete ---")
+
+
+app = FastAPI(
+    title="BlogSpy ML Prediction Service",
+    description="Provides predictions based on URL and HTML content.",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID", "N/A")
+    logger.info(
+        f"Request started: id={request_id} method={request.method} path={request.url.path} client={request.client.host}"
+    )
+
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = (time.time() - start_time) * 1000
+
+    logger.info(
+        f"Request finished: id={request_id} status_code={response.status_code} process_time={process_time:.2f}ms"
+    )
+    return response
+
+
+class PredictionRequest(BaseModel):
+    url: str = Field(..., description="The final URL of the page after any redirects.")
+    html_content: str = Field(..., description="The full raw HTML of the page.")
+    text_content: str = Field(
+        ..., description="The extracted plain text from the page."
+    )
+
+
+class PredictionResponse(BaseModel):
+    is_personal_blog: bool
+
+
+@app.post("/predict", response_model=PredictionResponse)
+def predict(request: PredictionRequest):
+    logger.info(f"Prediction requested for URL: {request.url}")
+
+    if not app.state.artifact:
+        logger.error(f"Prediction failed for URL {request.url}: Model is not loaded.")
+        raise HTTPException(
+            status_code=503,
+            detail="Model is not loaded. The service is unable to make predictions.",
+        )
+
+    try:
+        t_start = time.time()
+        df = pd.DataFrame(
+            [
+                {
+                    "url": request.url,
+                    "html_content": request.html_content,
+                    "text_content": request.text_content,
+                }
+            ]
+        )
+        t_prep = time.time()
+
+        txt_feat = app.state.artifact["vectorizer"].transform(
+            df["text_content"].fillna("")
+        )
+        t_text_feat = time.time()
+
+        num_feat_df = pd.concat(
+            [
+                extract_url_features(df["url"]),
+                extract_structural_features(df["html_content"]),
+                extract_content_features(df["text_content"]),
+            ],
+            axis=1,
+        )
+        num_feat = sp.csr_matrix(num_feat_df.to_numpy(dtype="float32"))
+        t_num_feat = time.time()
+
+        features = sp.hstack([txt_feat, num_feat], format="csr")
+        t_combine = time.time()
+
+        prediction_prob = app.state.artifact["model"].predict(features)[0]
+        is_personal_blog = bool(prediction_prob > 0.5)
+        t_predict = time.time()
+
+        logger.info(
+            f"Prediction for {request.url} successful. "
+            f"Result: {is_personal_blog} (Prob: {prediction_prob:.4f}). "
+            f"Timings [ms]: "
+            f"prep={(t_prep - t_start) * 1000:.2f}, "
+            f"text_feat={(t_text_feat - t_prep) * 1000:.2f}, "
+            f"num_feat={(t_num_feat - t_text_feat) * 1000:.2f}, "
+            f"combine={(t_combine - t_num_feat) * 1000:.2f}, "
+            f"predict={(t_predict - t_combine) * 1000:.2f}, "
+            f"total={(t_predict - t_start) * 1000:.2f}"
+        )
+
+        return PredictionResponse(is_personal_blog=is_personal_blog)
+
+    except Exception:
+        logger.error(
+            f"An internal error occurred during prediction for URL: {request.url}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="An internal error occurred during prediction.",
+        )
+
+
+@app.get("/health", status_code=200)
+def health_check():
+    model_loaded = app.state.artifact is not None
+    logger.info(f"Health check performed. Status: ok, Model Loaded: {model_loaded}")
+    return {
+        "status": "ok",
+        "model_loaded": model_loaded,
+    }
+
+
+
+================================================
+FILE: src/config.py
 ================================================
 # src/config.py
 
@@ -5345,7 +5480,7 @@ REQUEST_HEADERS = {
 
 
 ================================================
-File: src/database.py
+FILE: src/database.py
 ================================================
 # src/database.py
 
@@ -5439,7 +5574,7 @@ def bulk_insert_urls(db_session: Session, url_list: list[str]):
 
 
 ================================================
-File: src/feature_engineering.py
+FILE: src/feature_engineering.py
 ================================================
 
 # src/02_feature_engineering.py
@@ -5549,7 +5684,7 @@ def extract_content_features(text_contents: pd.Series) -> pd.DataFrame:
 
 
 ================================================
-File: src/settings.py
+FILE: src/settings.py
 ================================================
 # src/settings.py
 import pathlib
@@ -5579,7 +5714,7 @@ settings = Settings()
 
 
 ================================================
-File: src/utils.py
+FILE: src/utils.py
 ================================================
 # src/utils.py
 
@@ -5663,476 +5798,7 @@ def setup_logging(name: str) -> logging.Logger:
 
 
 ================================================
-File: src/worker.py
-================================================
-# src/worker.py
-
-from sqlalchemy.orm import Session
-from sqlalchemy import func  # <-- NEW: Import func for COUNT
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy import case, cast
-from src.config import MODELS_DIR, REQUEST_HEADERS
-from src.feature_engineering import extract_url_features, extract_structural_features, extract_content_features
-from src.database import SessionLocal, URL, URLEdge, CrawlStatus, RenderingType
-from src.utils import setup_logging
-import sys
-import pathlib
-import joblib
-import pandas as pd
-import requests
-import warnings
-import scipy.sparse as sp
-import psutil
-import time
-import os
-import threading
-import queue
-from datetime import datetime, timezone
-from urllib.parse import urljoin, urlparse
-from collections import defaultdict
-from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
-project_root = pathlib.Path(__file__).parent.parent
-sys.path.append(str(project_root))
-
-MODEL_PATH = MODELS_DIR / 'lgbm_final_model.joblib'
-BATCH_SIZE = 500
-SLEEP_INTERVAL = 5
-BATCH_WRITE_INTERVAL = 10
-
-# --- NEW: Configuration for Crawling Rules ---
-MAX_URLS_PER_NETLOC = 200
-RESTRICTED_TLDS = ('.org', '.edu')
-ALLOWED_PATH_PREFIXES = ('/blog')
-# ---------------------------------------------
-
-IGNORE_EXTENSIONS = (
-    '.pdf', '.jpg', '.jpeg', '.png', '.gif', '.zip', '.rar', '.exe',
-    '.mp3', '.mp4', '.avi', '.mov', '.dmg', '.iso', '.css', '.js',
-    '.xml', '.json', '.gz', '.tar', '.tgz'
-)
-
-logger = setup_logging('worker')
-
-thread_local_session = threading.local()
-link_batch_queue = queue.Queue()
-
-
-def get_session():
-    if not hasattr(thread_local_session, "session"):
-        thread_local_session.session = requests.Session()
-    return thread_local_session.session
-
-
-# --- Helper Functions (Unchanged) ---
-def get_performance_metrics():
-    return {"cpu_percent": psutil.cpu_percent(interval=0.1), "memory_rss_mb": round(psutil.Process().memory_info().rss / (1024 * 1024), 2)}
-
-
-def check_for_csr(soup: BeautifulSoup) -> bool:
-    if soup.find('div', id='root') or soup.find('div', id='app'):
-        body_text = soup.body.get_text(
-            strip=True, separator=' ') if soup.body else ''
-        if len(body_text) < 250:
-            return True
-    if soup.find('template', attrs={'data-dgst': 'BAILOUT_TO_CLIENT_SIDE_RENDERING'}):
-        return True
-    return False
-
-
-def fetch_and_parse_content(url: str) -> dict:
-    warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
-    session = get_session()
-    response = session.get(url, timeout=(
-        2, 4), headers=REQUEST_HEADERS, allow_redirects=True)
-    response.raise_for_status()
-    content_type = response.headers.get('content-type', '').lower()
-    if 'html' not in content_type:
-        return {"is_non_html": True, "final_url": response.url}
-    html = response.text
-    soup = BeautifulSoup(html, 'lxml')
-    is_csr = check_for_csr(soup)
-    if is_csr:
-        return {"is_csr": True, "soup": soup, "html_content": html, "final_url": response.url}
-    title = (soup.find('title').get_text(strip=True)
-             ) if soup.find('title') else None
-    desc_tag = soup.find('meta', attrs={'name': 'description'})
-    description = desc_tag['content'].strip(
-    ) if desc_tag and desc_tag.get('content') else None
-    for s in soup(['script', 'style']):
-        s.decompose()
-    text_content = ' '.join(soup.stripped_strings)
-    return {"is_non_html": False, "is_csr": False, "html_content": html, "text_content": text_content, "title": title, "description": description, "soup": soup, "final_url": response.url}
-
-
-def extract_links(html: str, base_url: str) -> list[str]:
-    links = set()
-    soup = BeautifulSoup(html, 'lxml')
-    for a in soup.find_all('a', href=True):
-        href = a['href'].strip()
-        if not href or href.startswith(('#', 'mailto:', 'javascript:')):
-            continue
-        lower_href = href.lower()
-        if any(lower_href.endswith(ext) for ext in IGNORE_EXTENSIONS):
-            continue
-        try:
-            full_url = urljoin(base_url, href)
-            parsed_url = urlparse(full_url)
-            if parsed_url.scheme in ['http', 'https']:
-                links.add(parsed_url._replace(fragment="").geturl())
-        except Exception:
-            continue
-    return list(links)
-
-
-# --- MODIFIED: This function now contains all the new filtering logic ---
-def _perform_crawl_logic(db_session: Session, url_record: URL, content: dict):
-    new_links = extract_links(content['html_content'], content["final_url"])
-    new_links.sort()
-
-    if not new_links:
-        return
-
-    # --- Step 1: Group links and prepare for efficient querying ---
-    links_by_netloc = defaultdict(list)
-    for link in new_links:
-        if nloc := urlparse(link).netloc:
-            links_by_netloc[nloc].append(link)
-
-    all_netlocs_found = list(links_by_netloc.keys())
-
-    # --- Step 2: Efficiently get existing link counts for all relevant netlocs ---
-    netloc_count_query = db_session.query(
-        URL.netloc, func.count(URL.id)
-    ).filter(
-        URL.netloc.in_(all_netlocs_found)
-    ).group_by(URL.netloc)
-
-    # Use defaultdict to simplify logic later
-    netloc_counts = defaultdict(
-        int, {netloc: count for netloc, count in netloc_count_query})
-
-    # --- Step 3: Get existing URLs and domain decisions in batch ---
-    existing_urls_q = db_session.query(URL.url).filter(URL.url.in_(new_links))
-    existing_urls = {res.url for res in existing_urls_q}
-
-    personal_statuses = {CrawlStatus.pending_crawl,
-                         CrawlStatus.crawling, CrawlStatus.completed}
-    domain_decisions_q = db_session.query(URL.netloc, URL.status).filter(
-        URL.netloc.in_(all_netlocs_found),
-        URL.status.in_(personal_statuses | {CrawlStatus.irrelevant})
-    ).distinct(URL.netloc)
-    domain_decisions = {res.netloc: res.status for res in domain_decisions_q}
-
-    # --- Step 4: Apply rules and build lists for insertion ---
-    links_to_add_to_db = []
-    logged_full_domains = set()  # To prevent log spam for full domains
-
-    for netloc, links in links_by_netloc.items():
-        for link in links:
-            # --- RULE 1: Check if the netloc is already full ---
-            if netloc_counts[netloc] >= MAX_URLS_PER_NETLOC:
-                if netloc not in logged_full_domains:
-                    logger.info(
-                        f"Netloc '{netloc}' is full ({netloc_counts[netloc]}/{MAX_URLS_PER_NETLOC}). Skipping new links.")
-                    logged_full_domains.add(netloc)
-                continue  # Skip this link and all others from this netloc
-
-            # --- RULE 2: Check for restricted TLDs and allowed paths ---
-            parsed_link = urlparse(link)
-            if netloc.endswith(RESTRICTED_TLDS):
-                path = parsed_link.path.lower()
-                if not any(path.startswith(p) for p in ALLOWED_PATH_PREFIXES) and path not in ('', '/'):
-                    logger.debug(
-                        f"Skipping restricted link (TLD/path mismatch): {link}")
-                    continue  # Skip this link
-
-            # --- Existing check for duplicates ---
-            if link in existing_urls:
-                continue
-
-            # Determine the status for the new link
-            link_status = CrawlStatus.pending_classification
-            if netloc == urlparse(url_record.url).netloc:
-                link_status = CrawlStatus.pending_crawl
-            elif netloc in domain_decisions:
-                decision = domain_decisions[netloc]
-                if decision == CrawlStatus.irrelevant:
-                    link_status = CrawlStatus.irrelevant
-                elif decision in personal_statuses:
-                    link_status = CrawlStatus.pending_crawl
-
-            links_to_add_to_db.append(
-                {"url": link, "netloc": netloc, "status": link_status})
-
-            # CRUCIAL: Increment the local counter to respect the limit within this batch
-            netloc_counts[netloc] += 1
-
-    # --- The critical change: Put the work onto the queue ---
-    if links_to_add_to_db:
-        link_batch_queue.put((url_record.id, links_to_add_to_db))
-        logger.info(
-            f"✅ Queued {len(links_to_add_to_db)} new URLs for batch insertion (from {url_record.url})")
-
-
-# --- Task Processing Functions (Unchanged) ---
-def process_classification_task(db_session: Session, url_record: URL, artifact: dict):
-    try:
-        content = fetch_and_parse_content(url_record.url)
-        if content.get("is_non_html"):
-            url_record.status = CrawlStatus.irrelevant
-            url_record.error_message = "Content-Type was not HTML"
-            return
-        if content.get("is_csr"):
-            url_record.status = CrawlStatus.irrelevant
-            url_record.rendering = RenderingType.CSR
-            url_record.error_message = "Detected Client-Side Rendering"
-            return
-
-        url_record.rendering = RenderingType.SSR
-        df = pd.DataFrame([{**content, "url": content["final_url"]}])
-        txt_feat = artifact['vectorizer'].transform(
-            df["text_content"].fillna(""))
-        num_feat_df = pd.concat([extract_url_features(df['url']), extract_structural_features(
-            df['html_content']), extract_content_features(df['text_content'])], axis=1)
-        num_feat = sp.csr_matrix(num_feat_df.to_numpy(dtype="float32"))
-        features = sp.hstack([txt_feat, num_feat], format="csr")
-        is_personal_blog = (artifact['model'].predict(features)[0] > 0.5)
-
-        url_record.processed_at = datetime.now(timezone.utc)
-        url_record.title = content.get('title')
-        url_record.description = content.get('description')
-        url_record.content = content.get('text_content')
-
-        if is_personal_blog:
-            _perform_crawl_logic(db_session, url_record, content)
-            url_record.status = CrawlStatus.completed
-        else:
-            url_record.status = CrawlStatus.irrelevant
-
-    except Exception as e:
-        logger.error(
-            f"Failed to classify {url_record.url}: {e}", exc_info=False)
-        url_record.status = CrawlStatus.failed
-        url_record.error_message = str(e)
-
-
-def process_crawl_task(db_session: Session, url_record: URL):
-    try:
-        content = fetch_and_parse_content(url_record.url)
-        if content.get("is_non_html"):
-            url_record.status = CrawlStatus.completed
-            url_record.error_message = "Content-Type was not HTML"
-            return
-        if content.get("is_csr"):
-            url_record.status = CrawlStatus.completed
-            url_record.rendering = RenderingType.CSR
-            url_record.error_message = "Detected CSR during crawl"
-            return
-
-        _perform_crawl_logic(db_session, url_record, content)
-
-        url_record.status = CrawlStatus.completed
-        url_record.processed_at = datetime.now(timezone.utc)
-        url_record.title = content.get('title')
-        url_record.description = content.get('description')
-        url_record.content = content.get('text_content')
-
-    except Exception as e:
-        logger.error(f"Failed to crawl {url_record.url}: {e}", exc_info=False)
-        url_record.status = CrawlStatus.failed
-        url_record.error_message = str(e)
-
-
-# --- Bulletproof Thread Wrapper (Unchanged) ---
-def run_task_in_thread(task_func, job_id: int, *args):
-    db_session = SessionLocal()
-    try:
-        job_to_process = db_session.query(URL).filter(URL.id == job_id).first()
-        if not job_to_process:
-            logger.warning(f"Job with ID {job_id} not found in thread.")
-            return
-        task_func(db_session, job_to_process, *args)
-        db_session.commit()
-    except Exception as e:
-        db_session.rollback()
-        logger.error(
-            f"Transaction failed for job ID {job_id}. Rolling back. Error: {e}", exc_info=False)
-    finally:
-        db_session.close()
-
-
-# --- "Reaper" Function for Fault Tolerance (Unchanged) ---
-def reset_stalled_jobs(db_session: Session):
-    try:
-        timeout_interval = 15
-        smart_reset_status = case(
-            (URL.status == 'classifying', cast(
-                'pending_classification', URL.status.type)),
-            (URL.status == 'crawling',    cast('pending_crawl', URL.status.type)),
-        )
-        stalled_jobs_query = db_session.query(URL).filter(
-            URL.status.in_(['classifying', 'crawling']),
-            URL.locked_at < (datetime.now(timezone.utc) -
-                             pd.Timedelta(minutes=timeout_interval))
-        )
-        rows_reset = stalled_jobs_query.update(
-            {'status': smart_reset_status, 'locked_at': None},
-            synchronize_session=False
-        )
-        if rows_reset > 0:
-            db_session.commit()
-            logger.warning(
-                f"Reaper: Reset {rows_reset} stalled jobs to their pending state.")
-        else:
-            db_session.rollback()
-    except Exception as e:
-        logger.error(
-            f"Reaper: Failed to reset stalled jobs: {e}", exc_info=True)
-        db_session.rollback()
-
-
-# --- Database Writer Thread (Unchanged) ---
-def database_writer_thread():
-    """
-    A dedicated thread that runs in the background, consuming links from the
-    queue and performing massive, efficient bulk writes to the database.
-    """
-    while True:
-        time.sleep(BATCH_WRITE_INTERVAL)
-        batch_items = []
-        while not link_batch_queue.empty():
-            try:
-                batch_items.append(link_batch_queue.get_nowait())
-            except queue.Empty:
-                break
-        if not batch_items:
-            continue
-        db = SessionLocal()
-        try:
-            all_link_records = []
-            for _, link_list in batch_items:
-                all_link_records.extend(link_list)
-            if not all_link_records:
-                db.close()
-                continue
-            logger.info(
-                f"DB-Writer: Processing batch of {len(all_link_records)} links from {len(batch_items)} sources.")
-            url_insert_stmt = pg_insert(URL).values(
-                all_link_records).on_conflict_do_nothing(index_elements=['url'])
-            db.execute(url_insert_stmt)
-            all_urls_in_batch = {record['url'] for record in all_link_records}
-            id_results = db.query(URL.id, URL.url).filter(
-                URL.url.in_(all_urls_in_batch)).all()
-            url_to_id_map = {url: url_id for url_id, url in id_results}
-            edge_values_to_insert = []
-            for source_id, link_list in batch_items:
-                for link_record in link_list:
-                    dest_url = link_record['url']
-                    if dest_url in url_to_id_map:
-                        dest_id = url_to_id_map[dest_url]
-                        edge_values_to_insert.append(
-                            {"source_url_id": source_id, "dest_url_id": dest_id})
-            if edge_values_to_insert:
-                edge_insert_stmt = pg_insert(URLEdge).values(
-                    edge_values_to_insert).on_conflict_do_nothing()
-                db.execute(edge_insert_stmt)
-            db.commit()
-            logger.info(
-                f"DB-Writer: Successfully committed batch. {len(edge_values_to_insert)} new edges created.")
-        except Exception as e:
-            logger.error(
-                f"DB-Writer: An error occurred during batch write. Rolling back. Error: {e}", exc_info=True)
-            db.rollback()
-        finally:
-            db.close()
-
-
-# --- Main Loop (Unchanged) ---
-def main():
-    logger.info("--- Starting BlogSpy Worker ---")
-    try:
-        artifact = joblib.load(MODEL_PATH)
-        logger.info("Model loaded successfully.")
-    except FileNotFoundError:
-        logger.error(f"Model file not found at {MODEL_PATH}. Exiting.")
-        sys.exit(1)
-
-    cpu_cores = os.cpu_count() or 1
-    max_workers = min(BATCH_SIZE * 2, cpu_cores * 5)
-    logger.info(
-        f"Initialized with BATCH_SIZE={BATCH_SIZE} and max_workers={max_workers}.")
-
-    writer_thread = threading.Thread(
-        target=database_writer_thread, daemon=True)
-    writer_thread.start()
-    logger.info("Database writer thread started.")
-
-    while True:
-        logger.debug("Starting new worker cycle", extra={
-                     "event": "cycle_start", "performance": get_performance_metrics()})
-        db = SessionLocal()
-        job_processed_in_cycle = False
-        try:
-            reset_stalled_jobs(db)
-            for job_type, status_from, status_to, process_func, args in [
-                ("crawling", CrawlStatus.pending_crawl,
-                 CrawlStatus.crawling, process_crawl_task, []),
-                ("classification", CrawlStatus.pending_classification,
-                 CrawlStatus.classifying, process_classification_task, [artifact])
-            ]:
-                job_ids_query = db.query(URL.id).filter(
-                    URL.status == status_from).with_for_update(skip_locked=True).limit(BATCH_SIZE)
-                job_ids = [id_tuple[0] for id_tuple in job_ids_query.all()]
-                if job_ids:
-                    job_processed_in_cycle = True
-                    db.query(URL).filter(URL.id.in_(job_ids)).update(
-                        {'status': status_to,
-                            'locked_at': datetime.now(timezone.utc)},
-                        synchronize_session=False
-                    )
-                    db.commit()
-                    logger.info(
-                        f"Locked and dispatched {len(job_ids)} {job_type} jobs.")
-                    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                        future_to_job_id = {executor.submit(
-                            run_task_in_thread, process_func, job_id, *args): job_id for job_id in job_ids}
-                        jobs_done_in_batch = 0
-                        for future in as_completed(future_to_job_id):
-                            jobs_done_in_batch += 1
-                            try:
-                                future.result()
-                                if jobs_done_in_batch % 20 == 0:
-                                    logger.info(
-                                        f"Batch progress: {jobs_done_in_batch}/{len(job_ids)} {job_type} jobs finished.")
-                            except Exception:
-                                pass
-                    logger.info(
-                        f"Batch of {len(job_ids)} {job_type} jobs complete.")
-            if not job_processed_in_cycle:
-                logger.info(
-                    f"No pending jobs in this cycle. Sleeping for {SLEEP_INTERVAL} seconds.")
-                time.sleep(SLEEP_INTERVAL)
-        except Exception as e:
-            logger.error(
-                f"An unexpected error occurred in the main loop: {e}", exc_info=True)
-            if db.is_active:
-                db.rollback()
-            time.sleep(SLEEP_INTERVAL)
-        finally:
-            if db.is_active:
-                db.close()
-
-
-if __name__ == "__main__":
-    main()
-
-
-
-
-================================================
-File: src/db/schema.sql
+FILE: src/db/schema.sql
 ================================================
 -- src/db/schema.sql
 
@@ -6164,6 +5830,7 @@ CREATE TABLE urls (
     title          TEXT,
     description    TEXT,
     error_message  TEXT,
+    pagerank       DOUBLE PRECISION DEFAULT 0.0, -- ADDED FOR PAGERANK SCORING
     processed_at   TIMESTAMPTZ,
     locked_at      TIMESTAMPTZ, -- ADDED FOR FAULT TOLERANCE
     created_at     TIMESTAMPTZ    NOT NULL DEFAULT NOW()
@@ -6181,5 +5848,820 @@ CREATE TABLE url_edges (
 );
 
 CREATE INDEX idx_url_edges_dest ON url_edges (dest_url_id);
+
+
+
+================================================
+FILE: src/woker/go.mod
+================================================
+module worker
+
+go 1.24.5
+
+require (
+	github.com/PuerkitoBio/goquery v1.10.3
+	github.com/jackc/pgx/v5 v5.7.5
+	golang.org/x/sync v0.13.0
+)
+
+require (
+	github.com/andybalholm/cascadia v1.3.3 // indirect
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	golang.org/x/crypto v0.37.0 // indirect
+	golang.org/x/net v0.39.0 // indirect
+	golang.org/x/text v0.24.0 // indirect
+)
+
+
+
+================================================
+FILE: src/woker/go.sum
+================================================
+github.com/PuerkitoBio/goquery v1.10.3 h1:pFYcNSqHxBD06Fpj/KsbStFRsgRATgnf3LeXiUkhzPo=
+github.com/PuerkitoBio/goquery v1.10.3/go.mod h1:tMUX0zDMHXYlAQk6p35XxQMqMweEKB7iK7iLNd4RH4Y=
+github.com/andybalholm/cascadia v1.3.3 h1:AG2YHrzJIm4BZ19iwJ/DAua6Btl3IwJX+VI4kktS1LM=
+github.com/andybalholm/cascadia v1.3.3/go.mod h1:xNd9bqTn98Ln4DwST8/nG+H0yuB8Hmgu1YHNnWw0GeA=
+github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
+github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+github.com/google/go-cmp v0.6.0/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
+github.com/jackc/pgpassfile v1.0.0 h1:/6Hmqy13Ss2zCq62VdNG8tM1wchn8zjSGOBJ6icpsIM=
+github.com/jackc/pgpassfile v1.0.0/go.mod h1:CEx0iS5ambNFdcRtxPj5JhEz+xB6uRky5eyVu/W2HEg=
+github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 h1:iCEnooe7UlwOQYpKFhBabPMi4aNAfoODPEFNiAnClxo=
+github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761/go.mod h1:5TJZWKEWniPve33vlWYSoGYefn3gLQRzjfDlhSJ9ZKM=
+github.com/jackc/pgx/v5 v5.7.5 h1:JHGfMnQY+IEtGM63d+NGMjoRpysB2JBwDr5fsngwmJs=
+github.com/jackc/pgx/v5 v5.7.5/go.mod h1:aruU7o91Tc2q2cFp5h4uP3f6ztExVpyVv88Xl/8Vl8M=
+github.com/jackc/puddle/v2 v2.2.2 h1:PR8nw+E/1w0GLuRFSmiioY6UooMp6KJv0/61nB7icHo=
+github.com/jackc/puddle/v2 v2.2.2/go.mod h1:vriiEXHvEE654aYKXXjOvZM39qJ0q+azkZFrfEOc3H4=
+github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
+github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
+github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
+github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UVUgZn+9EI=
+github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
+github.com/stretchr/testify v1.8.1 h1:w7B6lhMri9wdJUVmEZPGGhZzrYTPvgJArz7wNPgYKsk=
+github.com/stretchr/testify v1.8.1/go.mod h1:w2LPCIKwWwSfY2zedu0+kehJoqGctiVI29o6fzry7u4=
+github.com/yuin/goldmark v1.4.13/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5taEt/CY=
+golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
+golang.org/x/crypto v0.0.0-20210921155107-089bfa567519/go.mod h1:GvvjBRRGRdwPK5ydBHafDWAxML/pGHZbMvKqRZ5+Abc=
+golang.org/x/crypto v0.13.0/go.mod h1:y6Z2r+Rw4iayiXXAIxJIDAJ1zMW4yaTpebo8fPOliYc=
+golang.org/x/crypto v0.19.0/go.mod h1:Iy9bg/ha4yyC70EfRS8jz+B6ybOBKMaSxLj6P6oBDfU=
+golang.org/x/crypto v0.23.0/go.mod h1:CKFgDieR+mRhux2Lsu27y0fO304Db0wZe70UKqHu0v8=
+golang.org/x/crypto v0.31.0/go.mod h1:kDsLvtWBEx7MV9tJOj9bnXsPbxwJQ6csT/x4KIN4Ssk=
+golang.org/x/crypto v0.37.0 h1:kJNSjF/Xp7kU0iB2Z+9viTPMW4EqqsrywMXLJOOsXSE=
+golang.org/x/crypto v0.37.0/go.mod h1:vg+k43peMZ0pUMhYmVAWysMK35e6ioLh3wB8ZCAfbVc=
+golang.org/x/mod v0.6.0-dev.0.20220419223038-86c51ed26bb4/go.mod h1:jJ57K6gSWd91VN4djpZkiMVwK6gcyfeH4XE8wZrZaV4=
+golang.org/x/mod v0.8.0/go.mod h1:iBbtSCu2XBx23ZKBPSOrRkjjQPZFPuis4dIYUhu/chs=
+golang.org/x/mod v0.12.0/go.mod h1:iBbtSCu2XBx23ZKBPSOrRkjjQPZFPuis4dIYUhu/chs=
+golang.org/x/mod v0.15.0/go.mod h1:hTbmBsO62+eylJbnUtE2MGJUyE7QWk4xUqPFrRgJ+7c=
+golang.org/x/mod v0.17.0/go.mod h1:hTbmBsO62+eylJbnUtE2MGJUyE7QWk4xUqPFrRgJ+7c=
+golang.org/x/net v0.0.0-20190620200207-3b0461eec859/go.mod h1:z5CRVTTTmAJ677TzLLGU+0bjPO0LkuOLi4/5GtJWs/s=
+golang.org/x/net v0.0.0-20210226172049-e18ecbb05110/go.mod h1:m0MpNAwzfU5UDzcl9v0D8zg8gWTRqZa9RBIspLL5mdg=
+golang.org/x/net v0.0.0-20220722155237-a158d28d115b/go.mod h1:XRhObCWvk6IyKnWLug+ECip1KBveYUHfp+8e9klMJ9c=
+golang.org/x/net v0.6.0/go.mod h1:2Tu9+aMcznHK/AK1HMvgo6xiTLG5rD5rZLDS+rp2Bjs=
+golang.org/x/net v0.10.0/go.mod h1:0qNGK6F8kojg2nk9dLZ2mShWaEBan6FAoqfSigmmuDg=
+golang.org/x/net v0.15.0/go.mod h1:idbUs1IY1+zTqbi8yxTbhexhEEk5ur9LInksu6HrEpk=
+golang.org/x/net v0.21.0/go.mod h1:bIjVDfnllIU7BJ2DNgfnXvpSvtn8VRwhlsaeUTyUS44=
+golang.org/x/net v0.25.0/go.mod h1:JkAGAh7GEvH74S6FOH42FLoXpXbE/aqXSrIQjXgsiwM=
+golang.org/x/net v0.33.0/go.mod h1:HXLR5J+9DxmrqMwG9qjGCxZ+zKXxBru04zlTvWlWuN4=
+golang.org/x/net v0.39.0 h1:ZCu7HMWDxpXpaiKdhzIfaltL9Lp31x/3fCP11bc6/fY=
+golang.org/x/net v0.39.0/go.mod h1:X7NRbYVEA+ewNkCNyJ513WmMdQ3BineSwVtN2zD/d+E=
+golang.org/x/sync v0.0.0-20190423024810-112230192c58/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
+golang.org/x/sync v0.0.0-20220722155255-886fb9371eb4/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
+golang.org/x/sync v0.1.0/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
+golang.org/x/sync v0.3.0/go.mod h1:FU7BRWz2tNW+3quACPkgCx/L+uEAv1htQ0V83Z9Rj+Y=
+golang.org/x/sync v0.6.0/go.mod h1:Czt+wKu1gCyEFDUtn0jG5QVvpJ6rzVqr5aXyt9drQfk=
+golang.org/x/sync v0.7.0/go.mod h1:Czt+wKu1gCyEFDUtn0jG5QVvpJ6rzVqr5aXyt9drQfk=
+golang.org/x/sync v0.10.0/go.mod h1:Czt+wKu1gCyEFDUtn0jG5QVvpJ6rzVqr5aXyt9drQfk=
+golang.org/x/sync v0.13.0 h1:AauUjRAJ9OSnvULf/ARrrVywoJDy0YS2AwQ98I37610=
+golang.org/x/sync v0.13.0/go.mod h1:1dzgHSNfp02xaA81J2MS99Qcpr2w7fw1gpm99rleRqA=
+golang.org/x/sys v0.0.0-20190215142949-d0b11bdaac8a/go.mod h1:STP8DvDyc/dI5b8T5hshtkjS+E42TnysNCUPdjciGhY=
+golang.org/x/sys v0.0.0-20201119102817-f84b799fce68/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
+golang.org/x/sys v0.0.0-20210615035016-665e8c7367d1/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+golang.org/x/sys v0.0.0-20220722155257-8c9f86f7a55f/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+golang.org/x/sys v0.5.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+golang.org/x/sys v0.8.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+golang.org/x/sys v0.12.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+golang.org/x/sys v0.17.0/go.mod h1:/VUhepiaJMQUp4+oa/7Zr1D23ma6VTLIYjOOTFZPUcA=
+golang.org/x/sys v0.20.0/go.mod h1:/VUhepiaJMQUp4+oa/7Zr1D23ma6VTLIYjOOTFZPUcA=
+golang.org/x/sys v0.28.0/go.mod h1:/VUhepiaJMQUp4+oa/7Zr1D23ma6VTLIYjOOTFZPUcA=
+golang.org/x/telemetry v0.0.0-20240228155512-f48c80bd79b2/go.mod h1:TeRTkGYfJXctD9OcfyVLyj2J3IxLnKwHJR8f4D8a3YE=
+golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1/go.mod h1:bj7SfCRtBDWHUb9snDiAeCFNEtKQo2Wmx5Cou7ajbmo=
+golang.org/x/term v0.0.0-20210927222741-03fcf44c2211/go.mod h1:jbD1KX2456YbFQfuXm/mYQcufACuNUgVhRMnK/tPxf8=
+golang.org/x/term v0.5.0/go.mod h1:jMB1sMXY+tzblOD4FWmEbocvup2/aLOaQEp7JmGp78k=
+golang.org/x/term v0.8.0/go.mod h1:xPskH00ivmX89bAKVGSKKtLOWNx2+17Eiy94tnKShWo=
+golang.org/x/term v0.12.0/go.mod h1:owVbMEjm3cBLCHdkQu9b1opXd4ETQWc3BhuQGKgXgvU=
+golang.org/x/term v0.17.0/go.mod h1:lLRBjIVuehSbZlaOtGMbcMncT+aqLLLmKrsjNrUguwk=
+golang.org/x/term v0.20.0/go.mod h1:8UkIAJTvZgivsXaD6/pH6U9ecQzZ45awqEOzuCvwpFY=
+golang.org/x/term v0.27.0/go.mod h1:iMsnZpn0cago0GOrHO2+Y7u7JPn5AylBrcoWkElMTSM=
+golang.org/x/text v0.3.0/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=
+golang.org/x/text v0.3.3/go.mod h1:5Zoc/QRtKVWzQhOtBMvqHzDpF6irO9z98xDceosuGiQ=
+golang.org/x/text v0.3.7/go.mod h1:u+2+/6zg+i71rQMx5EYifcz6MCKuco9NR6JIITiCfzQ=
+golang.org/x/text v0.7.0/go.mod h1:mrYo+phRRbMaCq/xk9113O4dZlRixOauAjOtrjsXDZ8=
+golang.org/x/text v0.9.0/go.mod h1:e1OnstbJyHTd6l/uOt8jFFHp6TRDWZR/bV3emEE/zU8=
+golang.org/x/text v0.13.0/go.mod h1:TvPlkZtksWOMsz7fbANvkp4WM8x/WCo/om8BMLbz+aE=
+golang.org/x/text v0.14.0/go.mod h1:18ZOQIKpY8NJVqYksKHtTdi31H5itFRjB5/qKTNYzSU=
+golang.org/x/text v0.15.0/go.mod h1:18ZOQIKpY8NJVqYksKHtTdi31H5itFRjB5/qKTNYzSU=
+golang.org/x/text v0.21.0/go.mod h1:4IBbMaMmOPCJ8SecivzSH54+73PCFmPWxNTLm+vZkEQ=
+golang.org/x/text v0.24.0 h1:dd5Bzh4yt5KYA8f9CJHCP4FB4D51c2c6JvN37xJJkJ0=
+golang.org/x/text v0.24.0/go.mod h1:L8rBsPeo2pSS+xqN0d5u2ikmjtmoJbDBT1b7nHvFCdU=
+golang.org/x/tools v0.0.0-20180917221912-90fa682c2a6e/go.mod h1:n7NCudcB/nEzxVGmLbDWY5pfWTLqBcC2KZ6jyYvM4mQ=
+golang.org/x/tools v0.0.0-20191119224855-298f0cb1881e/go.mod h1:b+2E5dAYhXwXZwtnZ6UAqBI28+e2cm9otk0dWdXHAEo=
+golang.org/x/tools v0.1.12/go.mod h1:hNGJHUnrk76NpqgfD5Aqm5Crs+Hm0VOH/i9J2+nxYbc=
+golang.org/x/tools v0.6.0/go.mod h1:Xwgl3UAJ/d3gWutnCtw505GrjyAbvKui8lOU390QaIU=
+golang.org/x/tools v0.13.0/go.mod h1:HvlwmtVNQAhOuCjW7xxvovg8wbNq7LwfXh/k7wXUl58=
+golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d/go.mod h1:aiJjzUbINMkxbQROHiO6hDPo2LHcIPhhQsa9DLh0yGk=
+golang.org/x/xerrors v0.0.0-20190717185122-a985d3407aa7/go.mod h1:I/5z698sn9Ka8TeJc9MKroUUfqBBauWjQqLJ2OPfmY0=
+gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
+gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
+gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
+gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
+
+
+
+================================================
+FILE: src/woker/main.go
+================================================
+// main
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"os"
+	"os/signal"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/PuerkitoBio/goquery"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/errgroup"
+)
+
+type Config struct {
+	DatabaseURL         string
+	MLApiURL            string
+	BatchSize           int
+	MaxWorkers          int
+	SleepInterval       time.Duration
+	JobTimeout          time.Duration
+	FetchTimeout        time.Duration
+	MaxUrlsPerNetloc    int
+	BatchWriteInterval  time.Duration
+	BatchWriteQueueSize int
+	RestrictedTLDs      []string
+	AllowedPathPrefixes []string
+	IgnoreExtensions    []string
+}
+
+var AppConfig Config
+
+type CrawlStatus string
+
+const (
+	PendingClassification CrawlStatus = "pending_classification"
+	PendingCrawl          CrawlStatus = "pending_crawl"
+	Classifying           CrawlStatus = "classifying"
+	Crawling              CrawlStatus = "crawling"
+	Completed             CrawlStatus = "completed"
+	Failed                CrawlStatus = "failed"
+	Irrelevant            CrawlStatus = "irrelevant"
+)
+
+type RenderingType string
+
+const (
+	SSR RenderingType = "SSR"
+	CSR RenderingType = "CSR"
+)
+
+type URLRecord struct {
+	ID  int64
+	URL string
+}
+
+type FetchedContent struct {
+	IsNonHTML   bool
+	IsCSR       bool
+	FinalURL    string
+	HTMLContent string
+	TextContent string
+	Title       string
+	Description string
+	GoqueryDoc  *goquery.Document
+}
+
+type PredictionRequest struct {
+	URL         string `json:"url"`
+	HTMLContent string `json:"html_content"`
+	TextContent string `json:"text_content"`
+}
+
+type PredictionResponse struct {
+	IsPersonalBlog bool `json:"is_personal_blog"`
+}
+
+type LinkBatch struct {
+	SourceURLID int64
+	NewLinks    []NewLink
+}
+
+type NewLink struct {
+	URL    string
+	Netloc string
+	Status CrawlStatus
+}
+
+var (
+	dbpool     *pgxpool.Pool
+	httpClient *http.Client
+	linkQueue  chan LinkBatch
+)
+
+func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	slog.Info("--- Starting BlogSpy Go Worker ---")
+	loadConfig()
+
+	var err error
+	dbpool, err = pgxpool.New(ctx, AppConfig.DatabaseURL)
+	if err != nil {
+		slog.Error("Unable to create connection pool", "error", err)
+		os.Exit(1)
+	}
+	defer dbpool.Close()
+	slog.Info("Database connection pool established.")
+
+	httpClient = &http.Client{Timeout: AppConfig.FetchTimeout}
+
+	linkQueue = make(chan LinkBatch, AppConfig.BatchWriteQueueSize)
+	go databaseWriter(ctx)
+	slog.Info("Database writer goroutine started.")
+
+	ticker := time.NewTicker(AppConfig.SleepInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			slog.Info("Shutdown signal received. Exiting...")
+			return
+		case <-ticker.C:
+			slog.Debug("Worker cycle starting.")
+			resetStalledJobs(ctx)
+			processJobType(ctx, "classification", PendingClassification, Classifying)
+			processJobType(ctx, "crawling", PendingCrawl, Crawling)
+		}
+	}
+}
+
+func processJobType(ctx context.Context, jobType string, fromStatus, toStatus CrawlStatus) {
+	tx, err := dbpool.Begin(ctx)
+	if err != nil {
+		slog.Error("Failed to begin transaction", "error", err)
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	query := `SELECT id, url FROM urls WHERE status = $1 FOR UPDATE SKIP LOCKED LIMIT $2`
+	rows, err := tx.Query(ctx, query, fromStatus, AppConfig.BatchSize)
+	if err != nil {
+		slog.Error("Failed to query for jobs", "type", jobType, "error", err)
+		return
+	}
+
+	var jobs []URLRecord
+	jobs, err = pgx.CollectRows(rows, pgx.RowToStructByPos[URLRecord])
+	if err != nil {
+		slog.Error("Failed to scan job rows", "error", err)
+		return
+	}
+
+	if len(jobs) == 0 {
+		return
+	}
+
+	jobIDs := make([]int64, len(jobs))
+	for i, job := range jobs {
+		jobIDs[i] = job.ID
+	}
+
+	updateQuery := `UPDATE urls SET status = $1, locked_at = NOW() WHERE id = ANY($2)`
+	if _, err := tx.Exec(ctx, updateQuery, toStatus, jobIDs); err != nil {
+		slog.Error("Failed to lock jobs", "type", jobType, "error", err)
+		return
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		slog.Error("Failed to commit job-locking transaction", "error", err)
+		return
+	}
+	slog.Info("Locked and dispatched jobs", "type", jobType, "count", len(jobs))
+
+	g, gCtx := errgroup.WithContext(ctx)
+	g.SetLimit(AppConfig.MaxWorkers)
+
+	for _, job := range jobs {
+		g.Go(func() error {
+			if jobType == "classification" {
+				return processClassificationTask(gCtx, job)
+			}
+			return processCrawlTask(gCtx, job)
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		slog.Error("Error occurred during batch processing", "type", jobType, "error", err)
+	}
+	slog.Info("Finished processing batch", "type", jobType, "count", len(jobs))
+}
+
+func processClassificationTask(ctx context.Context, job URLRecord) (err error) {
+	tx, err := dbpool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			tx.Rollback(ctx)
+			panic(p)
+		} else if err != nil {
+			tx.Rollback(ctx)
+		} else {
+			err = tx.Commit(ctx)
+		}
+	}()
+
+	content, err := fetchAndParseContent(ctx, job.URL)
+	if err != nil {
+		slog.Error("Failed to fetch/parse content", "url", job.URL, "error", err)
+		updateStatus(ctx, tx, job.ID, Failed, err.Error())
+		return nil
+	}
+	if content.IsNonHTML {
+		updateStatus(ctx, tx, job.ID, Irrelevant, "Content-Type was not HTML")
+		return nil
+	}
+	if content.IsCSR {
+		updateStatusAndRendering(ctx, tx, job.ID, Irrelevant, CSR, "Detected Client-Side Rendering")
+		return nil
+	}
+
+	reqBody := PredictionRequest{URL: content.FinalURL, HTMLContent: content.HTMLContent, TextContent: content.TextContent}
+	jsonBody, _ := json.Marshal(reqBody)
+	httpReq, _ := http.NewRequestWithContext(ctx, "POST", AppConfig.MLApiURL+"/predict", bytes.NewBuffer(jsonBody))
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := httpClient.Do(httpReq)
+	if err != nil {
+		slog.Error("Failed to call prediction API", "url", job.URL, "error", err)
+		updateStatus(ctx, tx, job.ID, Failed, "Prediction API call failed: "+err.Error())
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		errMsg := fmt.Sprintf("Prediction API returned non-200 status: %d - %s", resp.StatusCode, string(bodyBytes))
+		slog.Error(errMsg, "url", job.URL)
+		updateStatus(ctx, tx, job.ID, Failed, errMsg)
+		return nil
+	}
+
+	var predResp PredictionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&predResp); err != nil {
+		slog.Error("Failed to decode prediction response", "url", job.URL, "error", err)
+		updateStatus(ctx, tx, job.ID, Failed, "Failed to decode prediction response: "+err.Error())
+		return nil
+	}
+
+	if predResp.IsPersonalBlog {
+		performCrawlLogic(ctx, tx, job, content)
+		updateURLAsCompleted(ctx, tx, job.ID, content, Completed)
+	} else {
+		updateURLAsCompleted(ctx, tx, job.ID, content, Irrelevant)
+	}
+	return nil
+}
+
+func processCrawlTask(ctx context.Context, job URLRecord) (err error) {
+	tx, err := dbpool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			tx.Rollback(ctx)
+			panic(p)
+		} else if err != nil {
+			tx.Rollback(ctx)
+		} else {
+			err = tx.Commit(ctx)
+		}
+	}()
+
+	content, err := fetchAndParseContent(ctx, job.URL)
+	if err != nil {
+		updateStatus(ctx, tx, job.ID, Failed, err.Error())
+		return nil
+	}
+	if content.IsNonHTML {
+		updateStatus(ctx, tx, job.ID, Completed, "Content-Type was not HTML")
+		return nil
+	}
+	if content.IsCSR {
+		updateStatusAndRendering(ctx, tx, job.ID, Completed, CSR, "Detected CSR during crawl")
+		return nil
+	}
+
+	performCrawlLogic(ctx, tx, job, content)
+	updateURLAsCompleted(ctx, tx, job.ID, content, Completed)
+	return nil
+}
+
+func performCrawlLogic(ctx context.Context, tx pgx.Tx, job URLRecord, content *FetchedContent) {
+	newLinks := extractLinks(content.GoqueryDoc, content.FinalURL)
+	if len(newLinks) == 0 {
+		return
+	}
+
+	linksByNetloc := make(map[string][]string)
+	var allNetlocsFound []string
+	netlocSet := make(map[string]struct{})
+
+	for _, link := range newLinks {
+		parsed, err := url.Parse(link)
+		if err != nil || parsed.Host == "" {
+			continue
+		}
+		netloc := parsed.Host
+		linksByNetloc[netloc] = append(linksByNetloc[netloc], link)
+		if _, exists := netlocSet[netloc]; !exists {
+			netlocSet[netloc] = struct{}{}
+			allNetlocsFound = append(allNetlocsFound, netloc)
+		}
+	}
+
+	netlocCounts := make(map[string]int)
+	countQuery := `SELECT netloc, count(id) FROM urls WHERE netloc = ANY($1) GROUP BY netloc`
+	rows, _ := tx.Query(ctx, countQuery, allNetlocsFound)
+	for rows.Next() {
+		var netloc string
+		var count int
+		if rows.Scan(&netloc, &count) == nil {
+			netlocCounts[netloc] = count
+		}
+	}
+	rows.Close()
+
+	existingURLs := make(map[string]struct{})
+	existQuery := `SELECT url FROM urls WHERE url = ANY($1)`
+	rows, _ = tx.Query(ctx, existQuery, newLinks)
+	for rows.Next() {
+		var u string
+		if rows.Scan(&u) == nil {
+			existingURLs[u] = struct{}{}
+		}
+	}
+	rows.Close()
+
+	domainDecisions := make(map[string]CrawlStatus)
+	decisionQuery := `SELECT DISTINCT ON (netloc) netloc, status FROM urls WHERE netloc = ANY($1) AND status IN ($2, $3, $4, $5)`
+	rows, _ = tx.Query(ctx, decisionQuery, allNetlocsFound, PendingCrawl, Crawling, Completed, Irrelevant)
+	for rows.Next() {
+		var netloc string
+		var status CrawlStatus
+		if rows.Scan(&netloc, &status) == nil {
+			domainDecisions[netloc] = status
+		}
+	}
+	rows.Close()
+
+	var linksToQueue []NewLink
+	sourceNetloc := getNetloc(job.URL)
+
+	for netloc, links := range linksByNetloc {
+		if netlocCounts[netloc] >= AppConfig.MaxUrlsPerNetloc {
+			continue
+		}
+		for _, link := range links {
+			isRestricted := false
+			for _, tld := range AppConfig.RestrictedTLDs {
+				if strings.HasSuffix(netloc, tld) {
+					isRestricted = true
+					break
+				}
+			}
+			if isRestricted {
+				path := getPath(link)
+				isAllowed := false
+				for _, prefix := range AppConfig.AllowedPathPrefixes {
+					if strings.HasPrefix(path, prefix) || path == "/" || path == "" {
+						isAllowed = true
+						break
+					}
+				}
+				if !isAllowed {
+					continue
+				}
+			}
+			if _, exists := existingURLs[link]; exists {
+				continue
+			}
+
+			linkStatus := PendingClassification
+			if netloc == sourceNetloc {
+				linkStatus = PendingCrawl
+			} else if decision, ok := domainDecisions[netloc]; ok {
+				if decision == Irrelevant {
+					linkStatus = Irrelevant
+				} else {
+					linkStatus = PendingCrawl
+				}
+			}
+			linksToQueue = append(linksToQueue, NewLink{URL: link, Netloc: netloc, Status: linkStatus})
+			netlocCounts[netloc]++
+			if netlocCounts[netloc] >= AppConfig.MaxUrlsPerNetloc {
+				break
+			}
+		}
+	}
+	if len(linksToQueue) > 0 {
+		select {
+		case linkQueue <- LinkBatch{SourceURLID: job.ID, NewLinks: linksToQueue}:
+		default:
+			slog.Warn("Link queue is full. Dropping links.", "count", len(linksToQueue))
+		}
+	}
+}
+
+func databaseWriter(ctx context.Context) {
+	ticker := time.NewTicker(AppConfig.BatchWriteInterval)
+	defer ticker.Stop()
+	var batches []LinkBatch
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case batch := <-linkQueue:
+			batches = append(batches, batch)
+		case <-ticker.C:
+			if len(batches) == 0 {
+				continue
+			}
+		drainLoop:
+			for {
+				select {
+				case batch := <-linkQueue:
+					batches = append(batches, batch)
+				default:
+					break drainLoop
+				}
+			}
+			processLinkBatches(ctx, batches)
+			batches = nil
+		}
+	}
+}
+
+func processLinkBatches(ctx context.Context, batches []LinkBatch) {
+	allNewLinks := make(map[string]NewLink)
+	for _, batch := range batches {
+		for _, link := range batch.NewLinks {
+			allNewLinks[link.URL] = link
+		}
+	}
+	if len(allNewLinks) == 0 {
+		return
+	}
+
+	tx, err := dbpool.Begin(ctx)
+	if err != nil {
+		slog.Error("DB Writer: Failed to begin transaction", "error", err)
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	var urlRows [][]any
+	for _, link := range allNewLinks {
+		urlRows = append(urlRows, []any{link.URL, link.Netloc, link.Status})
+	}
+	_, err = tx.CopyFrom(ctx, pgx.Identifier{"urls"}, []string{"url", "netloc", "status"}, pgx.CopyFromRows(urlRows))
+	if err != nil && !strings.Contains(err.Error(), "23505") {
+		slog.Error("DB Writer: Failed to bulk insert urls", "error", err)
+		return
+	}
+
+	urlStrings := make([]string, 0, len(allNewLinks))
+	for urlStr := range allNewLinks {
+		urlStrings = append(urlStrings, urlStr)
+	}
+	rows, err := tx.Query(ctx, `SELECT id, url FROM urls WHERE url = ANY($1)`, urlStrings)
+	if err != nil {
+		slog.Error("DB Writer: Failed to query for new URL IDs", "error", err)
+		return
+	}
+	urlToIDMap := make(map[string]int64)
+	for rows.Next() {
+		var id int64
+		var urlStr string
+		if err := rows.Scan(&id, &urlStr); err == nil {
+			urlToIDMap[urlStr] = id
+		}
+	}
+	rows.Close()
+
+	var edgeRows [][]any
+	for _, batch := range batches {
+		for _, link := range batch.NewLinks {
+			if destID, ok := urlToIDMap[link.URL]; ok {
+				edgeRows = append(edgeRows, []any{
+					batch.SourceURLID,
+					destID,
+				})
+			}
+		}
+	}
+	if len(edgeRows) > 0 {
+		_, err = tx.CopyFrom(ctx, pgx.Identifier{"url_edges"}, []string{
+			"source_url_id",
+			"dest_url_id",
+		}, pgx.CopyFromRows(edgeRows))
+		if err != nil && !strings.Contains(err.Error(), "23505") { // Ignore unique constraint errors
+			slog.Error("DB Writer: Failed to bulk insert edges", "error", err)
+			return
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		slog.Error("DB Writer: Failed to commit transaction", "error", err)
+	} else {
+		slog.Info("DB Writer: Successfully committed batch", "new_urls", len(urlRows), "new_edges", len(edgeRows))
+	}
+}
+
+func fetchAndParseContent(ctx context.Context, rawURL string) (*FetchedContent, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("bad status code: %d", resp.StatusCode)
+	}
+	contentType := resp.Header.Get("Content-Type")
+	if !strings.Contains(strings.ToLower(contentType), "html") {
+		return &FetchedContent{IsNonHTML: true, FinalURL: resp.Request.URL.String()}, nil
+	}
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	htmlContent := string(bodyBytes)
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlContent))
+	if err != nil {
+		return nil, err
+	}
+	content := &FetchedContent{FinalURL: resp.Request.URL.String(), HTMLContent: htmlContent, GoqueryDoc: doc}
+	if doc.Find("#root, #app").Length() > 0 && len(strings.TrimSpace(doc.Find("body").Text())) < 250 {
+		content.IsCSR = true
+	}
+	if doc.Find("template[data-dgst='BAILOUT_TO_CLIENT_SIDE_RENDERING']").Length() > 0 {
+		content.IsCSR = true
+	}
+	if content.IsCSR {
+		return content, nil
+	}
+	content.Title = strings.TrimSpace(doc.Find("title").First().Text())
+	if val, exists := doc.Find("meta[name='description']").Attr("content"); exists {
+		content.Description = strings.TrimSpace(val)
+	}
+	doc.Find("script, style").Remove()
+	re := strings.NewReplacer("\n", " ", "\t", " ", "\r", " ")
+	content.TextContent = strings.Join(strings.Fields(re.Replace(doc.Text())), " ")
+	return content, nil
+}
+
+func extractLinks(doc *goquery.Document, baseURL string) []string {
+	base, err := url.Parse(baseURL)
+	if err != nil {
+		return nil
+	}
+	linkSet := make(map[string]struct{})
+	doc.Find("a[href]").Each(func(i int, s *goquery.Selection) {
+		href, _ := s.Attr("href")
+		href = strings.TrimSpace(href)
+		if href == "" || strings.HasPrefix(href, "#") || strings.HasPrefix(href, "mailto:") || strings.HasPrefix(href, "javascript:") {
+			return
+		}
+		lowerHref := strings.ToLower(href)
+		for _, ext := range AppConfig.IgnoreExtensions {
+			if strings.HasSuffix(lowerHref, ext) {
+				return
+			}
+		}
+		resolvedURL, err := base.Parse(href)
+		if err == nil && (resolvedURL.Scheme == "http" || resolvedURL.Scheme == "https") {
+			resolvedURL.Fragment = ""
+			linkSet[resolvedURL.String()] = struct{}{}
+		}
+	})
+	links := make([]string, 0, len(linkSet))
+	for link := range linkSet {
+		links = append(links, link)
+	}
+	return links
+}
+
+func getNetloc(rawURL string) string {
+	if parsed, err := url.Parse(rawURL); err == nil {
+		return parsed.Host
+	}
+	return ""
+}
+func getPath(rawURL string) string {
+	if parsed, err := url.Parse(rawURL); err == nil {
+		return parsed.Path
+	}
+	return ""
+}
+func updateStatus(ctx context.Context, tx pgx.Tx, id int64, status CrawlStatus, errMsg string) {
+	query := `UPDATE urls SET status = $1, error_message = $2, processed_at = NOW() WHERE id = $3`
+	_, err := tx.Exec(ctx, query, status, errMsg, id)
+	if err != nil {
+		slog.Error("Failed to update status", "id", id, "error", err)
+	}
+}
+func updateStatusAndRendering(ctx context.Context, tx pgx.Tx, id int64, status CrawlStatus, rendering RenderingType, errMsg string) {
+	query := `UPDATE urls SET status = $1, rendering = $2, error_message = $3, processed_at = NOW() WHERE id = $4`
+	_, err := tx.Exec(ctx, query, status, rendering, errMsg, id)
+	if err != nil {
+		slog.Error("Failed to update status and rendering", "id", id, "error", err)
+	}
+}
+func updateURLAsCompleted(ctx context.Context, tx pgx.Tx, id int64, content *FetchedContent, status CrawlStatus) {
+	query := `UPDATE urls SET status = $1, processed_at = NOW(), title = $2, description = $3, content = $4, rendering = $5 WHERE id = $6`
+	_, err := tx.Exec(ctx, query, status, content.Title, content.Description, content.TextContent, SSR, id)
+	if err != nil {
+		slog.Error("Failed to update URL as completed", "id", id, "error", err)
+	}
+}
+func resetStalledJobs(ctx context.Context) {
+	query := `UPDATE urls SET status = CASE WHEN status = 'classifying' THEN 'pending_classification' WHEN status = 'crawling' THEN 'pending_crawl' END, locked_at = NULL WHERE status IN ('classifying', 'crawling') AND locked_at < NOW() - $1::interval`
+	interval := fmt.Sprintf("%f minutes", AppConfig.JobTimeout.Minutes())
+	res, err := dbpool.Exec(ctx, query, interval)
+	if err != nil {
+		slog.Error("Reaper: Failed to reset stalled jobs", "error", err)
+	} else if res.RowsAffected() > 0 {
+		slog.Warn("Reaper: Reset stalled jobs", "count", res.RowsAffected())
+	}
+}
+
+func getEnv(key string, defaultVal string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
+	}
+	return defaultVal
+}
+
+func loadConfig() {
+	AppConfig.DatabaseURL = getEnv("DATABASE_URL", "")
+	AppConfig.MLApiURL = getEnv("ML_API_URL", "")
+	if AppConfig.DatabaseURL == "" || AppConfig.MLApiURL == "" {
+		slog.Error("DATABASE_URL and ML_API_URL must be set")
+		os.Exit(1)
+	}
+	AppConfig.BatchSize, _ = strconv.Atoi(getEnv("BATCH_SIZE", "500"))
+	AppConfig.MaxWorkers, _ = strconv.Atoi(getEnv("MAX_WORKERS", "50"))
+	AppConfig.SleepInterval, _ = time.ParseDuration(getEnv("SLEEP_INTERVAL", "5s"))
+	AppConfig.JobTimeout, _ = time.ParseDuration(getEnv("JOB_TIMEOUT", "15m"))
+	AppConfig.FetchTimeout, _ = time.ParseDuration(getEnv("FETCH_TIMEOUT", "6s"))
+	AppConfig.MaxUrlsPerNetloc, _ = strconv.Atoi(getEnv("MAX_URLS_PER_NETLOC", "130"))
+	AppConfig.BatchWriteInterval, _ = time.ParseDuration(getEnv("BATCH_WRITE_INTERVAL", "10s"))
+	AppConfig.BatchWriteQueueSize, _ = strconv.Atoi(getEnv("BATCH_WRITE_QUEUE_SIZE", "1000"))
+	AppConfig.RestrictedTLDs = strings.Split(getEnv("RESTRICTED_TLDS", ".org,.edu"), ",")
+	AppConfig.AllowedPathPrefixes = strings.Split(getEnv("ALLOWED_PATH_PREFIXES", "/blog"), ",")
+	AppConfig.IgnoreExtensions = strings.Split(getEnv("IGNORE_EXTENSIONS", ".pdf,.jpg,.jpeg,.png,.gif,.zip,.rar,.exe,.mp3,.mp4,.avi,.mov,.dmg,.iso,.css,.js,.xml,.json,.gz,.tar,.tgz"), ",")
+}
 
 

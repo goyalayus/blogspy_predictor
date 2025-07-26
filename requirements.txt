@@ -1,24 +1,17 @@
-# Core ML & Data
 scikit-learn
 scipy
 pandas
 numpy
 joblib
-lightgbm # Important: joblib needs this to load the booster object
-psutil # NEW: For system resource monitoring
-
-# Web Scraping
+lightgbm
+psutil
 requests
 beautifulsoup4
 lxml
-
 fastapi
 uvicorn[standard]
-
 sqlalchemy
-psycopg2-binary  # Postgres driver
-
+psycopg2-binary
 pydantic-settings
 validators
-# In requirements.txt
 plotext
