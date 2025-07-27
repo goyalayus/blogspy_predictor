@@ -55,9 +55,12 @@ func (w *Worker) ProcessJobs(ctx context.Context, jobType string, fromStatus, to
 	g.SetLimit(w.cfg.MaxWorkers)
 
 	for _, job := range jobsList {
-		job := job
+		currentJob := job
 		g.Go(func() error {
-			domainJob := domain.URLRecord{ID: job.ID, URL: job.Url}
+			domainJob := domain.URLRecord{
+				ID: currentJob.ID,
+				URL: currentJob.Url,
+			}
 			var err error
 			if jobType == "classification" {
 				err = w.processClassificationTask(gCtx, domainJob)
@@ -65,7 +68,7 @@ func (w *Worker) ProcessJobs(ctx context.Context, jobType string, fromStatus, to
 				err = w.processCrawlTask(gCtx, domainJob)
 			}
 			if err != nil {
-				slog.Error("Task failed", "job_id", job.ID, "url", job.Url, "error", err)
+				slog.Error("Task failed", "job_id", currentJob.ID, "url", currentJob.Url, "error", err)
 			}
 			return nil
 		})
