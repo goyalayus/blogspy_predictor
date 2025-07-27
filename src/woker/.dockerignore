@@ -1,0 +1,4 @@
+.env
+query.sql
+schema.sql
+sqlc.yml

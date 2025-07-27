@@ -1,0 +1,7 @@
+src/woker/
+README.md
+.gitignore
+.git/
+venv/
+corporate.csv
+searchmysite_urls.csv

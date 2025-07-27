@@ -1,0 +1,20 @@
+FROM python:3.13.5-bookworm AS builder
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+WORKDIR /opt/app
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+FROM python:3.13.5-slim-bookworm
+WORKDIR /app
+COPY --from=builder /opt/venv /opt/venv
+RUN useradd --create-home --shell /bin/bash appuser
+COPY --chown=appuser:appuser src ./src
+COPY --chown=appuser:appuser outputs ./outputs
+USER appuser
+ENV PATH="/opt/venv/bin:$PATH"
+ENV MODEL_PATH="/app/outputs/models/lgbm_final_model.joblib"
+ENTRYPOINT ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]
