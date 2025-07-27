@@ -9,6 +9,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 FROM python:3.13.5-slim-bookworm
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends libgomp1 && \
+    rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 RUN useradd --create-home --shell /bin/bash appuser
