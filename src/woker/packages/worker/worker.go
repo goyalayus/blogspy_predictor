@@ -15,8 +15,10 @@ import (
 	"worker/packages/crawler"
 	"worker/packages/db"
 	"worker/packages/domain"
+	"worker/packages/generated"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -36,10 +38,10 @@ func New(cfg config.Config, storage *db.Storage, crawler *crawler.Crawler) *Work
 	}
 }
 
-func (w *Worker) ProcessJobs(ctx context.Context, jobType string, fromStatus, toStatus domain.CrawlStatus) {
-	jobsList, err := w.storage.LockJobs(ctx, fromStatus, toStatus, w.cfg.BatchSize)
+func (w *Worker) ProcessJobs(ctx context.Context, jobType string, fromStatus, toStatus generated.CrawlStatus) {
+	jobsList, err := w.storage.LockJobs(ctx, fromStatus, toStatus, int32(w.cfg.BatchSize))
 	if err != nil {
-		slog.Error("Failed to lock jobs", "type", jobType, "error", err)
+		slog.Error("Failed to lock and update jobs", "type", jobType, "error", err)
 		return
 	}
 
@@ -53,16 +55,17 @@ func (w *Worker) ProcessJobs(ctx context.Context, jobType string, fromStatus, to
 	g.SetLimit(w.cfg.MaxWorkers)
 
 	for _, job := range jobsList {
-		currentJob := job
+		job := job
 		g.Go(func() error {
+			domainJob := domain.URLRecord{ID: job.ID, URL: job.Url}
 			var err error
 			if jobType == "classification" {
-				err = w.processClassificationTask(gCtx, currentJob)
+				err = w.processClassificationTask(gCtx, domainJob)
 			} else {
-				err = w.processCrawlTask(gCtx, currentJob)
+				err = w.processCrawlTask(gCtx, domainJob)
 			}
 			if err != nil {
-				slog.Error("Task failed", "job_id", currentJob.ID, "url", currentJob.URL, "error", err)
+				slog.Error("Task failed", "job_id", job.ID, "url", job.Url, "error", err)
 			}
 			return nil
 		})
@@ -72,16 +75,29 @@ func (w *Worker) ProcessJobs(ctx context.Context, jobType string, fromStatus, to
 }
 
 func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRecord) error {
-	return w.storage.WithTransaction(ctx, func(tx pgx.Tx) error {
+	return w.storage.WithTransaction(ctx, func(qtx *generated.Queries, tx pgx.Tx) error {
 		content, err := w.crawler.FetchAndParseContent(ctx, job.URL)
 		if err != nil {
-			return w.storage.UpdateStatus(ctx, tx, job.ID, domain.Failed, err.Error())
+			return qtx.UpdateStatus(ctx, generated.UpdateStatusParams{
+				ID:           job.ID,
+				Status:       generated.CrawlStatusFailed,
+				ErrorMessage: pgtype.Text{String: err.Error(), Valid: true},
+			})
 		}
 		if content.IsNonHTML {
-			return w.storage.UpdateStatus(ctx, tx, job.ID, domain.Irrelevant, "Content-Type was not HTML")
+			return qtx.UpdateStatus(ctx, generated.UpdateStatusParams{
+				ID:           job.ID,
+				Status:       generated.CrawlStatusIrrelevant,
+				ErrorMessage: pgtype.Text{String: "Content-Type was not HTML", Valid: true},
+			})
 		}
 		if content.IsCSR {
-			return w.storage.UpdateStatusAndRendering(ctx, tx, job.ID, domain.Irrelevant, domain.CSR, "Detected Client-Side Rendering")
+			return qtx.UpdateStatusAndRendering(ctx, generated.UpdateStatusAndRenderingParams{
+				ID:           job.ID,
+				Status:       generated.CrawlStatusIrrelevant,
+				Rendering:    generated.NullRenderingType{RenderingType: generated.RenderingTypeCSR, Valid: true},
+				ErrorMessage: pgtype.Text{String: "Detected Client-Side Rendering", Valid: true},
+			})
 		}
 
 		reqBody := domain.PredictionRequest{URL: content.FinalURL, HTMLContent: content.HTMLContent, TextContent: content.TextContent}
@@ -91,52 +107,100 @@ func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRe
 
 		resp, err := w.httpClient.Do(httpReq)
 		if err != nil {
-			return w.storage.UpdateStatus(ctx, tx, job.ID, domain.Failed, "Prediction API call failed: "+err.Error())
+			return qtx.UpdateStatus(ctx, generated.UpdateStatusParams{
+				ID:           job.ID,
+				Status:       generated.CrawlStatusFailed,
+				ErrorMessage: pgtype.Text{String: "Prediction API call failed: " + err.Error(), Valid: true},
+			})
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
 			bodyBytes, _ := io.ReadAll(resp.Body)
 			errMsg := fmt.Sprintf("Prediction API returned non-200 status: %d - %s", resp.StatusCode, string(bodyBytes))
-			return w.storage.UpdateStatus(ctx, tx, job.ID, domain.Failed, errMsg)
+			return qtx.UpdateStatus(ctx, generated.UpdateStatusParams{
+				ID:           job.ID,
+				Status:       generated.CrawlStatusFailed,
+				ErrorMessage: pgtype.Text{String: errMsg, Valid: true},
+			})
 		}
 
 		var predResp domain.PredictionResponse
 		if err := json.NewDecoder(resp.Body).Decode(&predResp); err != nil {
-			return w.storage.UpdateStatus(ctx, tx, job.ID, domain.Failed, "Failed to decode prediction response: "+err.Error())
+			return qtx.UpdateStatus(ctx, generated.UpdateStatusParams{
+				ID:           job.ID,
+				Status:       generated.CrawlStatusFailed,
+				ErrorMessage: pgtype.Text{String: "Failed to decode prediction response: " + err.Error(), Valid: true},
+			})
 		}
 
 		if predResp.IsPersonalBlog {
-			if err := w.performCrawlLogic(ctx, tx, job, content); err != nil {
+			if err := w.performCrawlLogic(ctx, qtx, job, content); err != nil {
 				return err
 			}
-			return w.storage.UpdateURLAsCompleted(ctx, tx, job.ID, content, domain.Completed)
+			return qtx.UpdateURLAsCompleted(ctx, generated.UpdateURLAsCompletedParams{
+				ID:          job.ID,
+				Status:      generated.CrawlStatusCompleted,
+				Title:       pgtype.Text{String: content.Title, Valid: content.Title != ""},
+				Description: pgtype.Text{String: content.Description, Valid: content.Description != ""},
+				Content:     pgtype.Text{String: content.TextContent, Valid: content.TextContent != ""},
+				Rendering:   generated.NullRenderingType{RenderingType: generated.RenderingTypeSSR, Valid: true},
+			})
 		}
-		return w.storage.UpdateURLAsCompleted(ctx, tx, job.ID, content, domain.Irrelevant)
+		return qtx.UpdateURLAsCompleted(ctx, generated.UpdateURLAsCompletedParams{
+			ID:          job.ID,
+			Status:      generated.CrawlStatusIrrelevant,
+			Title:       pgtype.Text{String: content.Title, Valid: content.Title != ""},
+			Description: pgtype.Text{String: content.Description, Valid: content.Description != ""},
+			Content:     pgtype.Text{String: content.TextContent, Valid: content.TextContent != ""},
+			Rendering:   generated.NullRenderingType{RenderingType: generated.RenderingTypeSSR, Valid: true},
+		})
 	})
 }
 
 func (w *Worker) processCrawlTask(ctx context.Context, job domain.URLRecord) error {
-	return w.storage.WithTransaction(ctx, func(tx pgx.Tx) error {
+	return w.storage.WithTransaction(ctx, func(qtx *generated.Queries, tx pgx.Tx) error {
 		content, err := w.crawler.FetchAndParseContent(ctx, job.URL)
 		if err != nil {
-			return w.storage.UpdateStatus(ctx, tx, job.ID, domain.Failed, err.Error())
-		}
-		if content.IsNonHTML {
-			return w.storage.UpdateStatus(ctx, tx, job.ID, domain.Completed, "Content-Type was not HTML")
-		}
-		if content.IsCSR {
-			return w.storage.UpdateStatusAndRendering(ctx, tx, job.ID, domain.Completed, domain.CSR, "Detected CSR during crawl")
+			return qtx.UpdateStatus(ctx, generated.UpdateStatusParams{
+				ID:           job.ID,
+				Status:       generated.CrawlStatusFailed,
+				ErrorMessage: pgtype.Text{String: err.Error(), Valid: true},
+			})
 		}
 
-		if err := w.performCrawlLogic(ctx, tx, job, content); err != nil {
+		if content.IsNonHTML {
+			return qtx.UpdateStatus(ctx, generated.UpdateStatusParams{
+				ID:           job.ID,
+				Status:       generated.CrawlStatusCompleted,
+				ErrorMessage: pgtype.Text{String: "Content-Type was not HTML", Valid: true},
+			})
+		}
+
+		if content.IsCSR {
+			return qtx.UpdateStatusAndRendering(ctx, generated.UpdateStatusAndRenderingParams{
+				ID:           job.ID,
+				Status:       generated.CrawlStatusCompleted,
+				Rendering:    generated.NullRenderingType{RenderingType: generated.RenderingTypeCSR, Valid: true},
+				ErrorMessage: pgtype.Text{String: "Detected CSR during crawl", Valid: true},
+			})
+		}
+
+		if err := w.performCrawlLogic(ctx, qtx, job, content); err != nil {
 			return err
 		}
-		return w.storage.UpdateURLAsCompleted(ctx, tx, job.ID, content, domain.Completed)
+		return qtx.UpdateURLAsCompleted(ctx, generated.UpdateURLAsCompletedParams{
+			ID:          job.ID,
+			Status:      generated.CrawlStatusCompleted,
+			Title:       pgtype.Text{String: content.Title, Valid: content.Title != ""},
+			Description: pgtype.Text{String: content.Description, Valid: content.Description != ""},
+			Content:     pgtype.Text{String: content.TextContent, Valid: content.TextContent != ""},
+			Rendering:   generated.NullRenderingType{RenderingType: generated.RenderingTypeSSR, Valid: true},
+		})
 	})
 }
 
-func (w *Worker) performCrawlLogic(ctx context.Context, tx pgx.Tx, job domain.URLRecord, content *domain.FetchedContent) error {
+func (w *Worker) performCrawlLogic(ctx context.Context, qtx *generated.Queries, job domain.URLRecord, content *domain.FetchedContent) error {
 	newLinks := w.crawler.ExtractLinks(content.GoqueryDoc, content.FinalURL, w.cfg.IgnoreExtensions)
 	if len(newLinks) == 0 {
 		return nil
@@ -161,19 +225,31 @@ func (w *Worker) performCrawlLogic(ctx context.Context, tx pgx.Tx, job domain.UR
 		return nil
 	}
 
-	netlocCounts, err := w.storage.GetNetlocCounts(ctx, tx, allNetlocsFound)
+	netlocCountsRows, err := qtx.GetNetlocCounts(ctx, allNetlocsFound)
 	if err != nil {
 		return fmt.Errorf("crawl-logic: failed to get netloc counts: %w", err)
 	}
+	netlocCounts := make(map[string]int32)
+	for _, row := range netlocCountsRows {
+		netlocCounts[row.Netloc] = row.Count
+	}
 
-	existingURLs, err := w.storage.GetExistingURLs(ctx, tx, newLinks)
+	existingURLsRows, err := qtx.GetExistingURLs(ctx, newLinks)
 	if err != nil {
 		return fmt.Errorf("crawl-logic: failed to check existing urls: %w", err)
 	}
+	existingURLs := make(map[string]struct{}, len(existingURLsRows))
+	for _, urlStr := range existingURLsRows {
+		existingURLs[urlStr] = struct{}{}
+	}
 
-	domainDecisions, err := w.storage.GetDomainDecisions(ctx, tx, allNetlocsFound)
+	domainDecisionsRows, err := qtx.GetDomainDecisions(ctx, allNetlocsFound)
 	if err != nil {
 		return fmt.Errorf("crawl-logic: failed to get domain decisions: %w", err)
+	}
+	domainDecisions := make(map[string]generated.CrawlStatus)
+	for _, row := range domainDecisionsRows {
+		domainDecisions[row.Netloc] = row.Status
 	}
 
 	sourceNetloc, err := url.Parse(job.URL)
@@ -183,7 +259,7 @@ func (w *Worker) performCrawlLogic(ctx context.Context, tx pgx.Tx, job domain.UR
 
 	var linksToQueue []domain.NewLink
 	for netloc, links := range linksByNetloc {
-		if netlocCounts[netloc] >= w.cfg.MaxUrlsPerNetloc {
+		if int(netlocCounts[netloc]) >= w.cfg.MaxUrlsPerNetloc {
 			continue
 		}
 		for _, link := range links {
@@ -216,7 +292,7 @@ func (w *Worker) performCrawlLogic(ctx context.Context, tx pgx.Tx, job domain.UR
 			if netloc == sourceNetloc.Host {
 				linkStatus = domain.PendingCrawl
 			} else if decision, ok := domainDecisions[netloc]; ok {
-				if decision == domain.Irrelevant {
+				if decision == generated.CrawlStatusIrrelevant {
 					linkStatus = domain.Irrelevant
 				} else {
 					linkStatus = domain.PendingCrawl
@@ -225,7 +301,7 @@ func (w *Worker) performCrawlLogic(ctx context.Context, tx pgx.Tx, job domain.UR
 
 			linksToQueue = append(linksToQueue, domain.NewLink{URL: link, Netloc: netloc, Status: linkStatus})
 			netlocCounts[netloc]++
-			if netlocCounts[netloc] >= w.cfg.MaxUrlsPerNetloc {
+			if int(netlocCounts[netloc]) >= w.cfg.MaxUrlsPerNetloc {
 				break
 			}
 		}

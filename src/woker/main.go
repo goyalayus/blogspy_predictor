@@ -1,4 +1,3 @@
-// Package main
 package main
 
 import (
@@ -11,14 +10,13 @@ import (
 	"worker/packages/config"
 	"worker/packages/crawler"
 	"worker/packages/db"
-	"worker/packages/domain"
+	"worker/packages/generated"
 	"worker/packages/worker"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -31,9 +29,9 @@ func main() {
 	}
 
 	dbCfg := db.Config{
+		JobTimeout:          cfg.JobTimeout,
 		BatchWriteInterval:  cfg.BatchWriteInterval,
 		BatchWriteQueueSize: cfg.BatchWriteQueueSize,
-		JobTimeout:          cfg.JobTimeout,
 	}
 	storage, err := db.New(ctx, cfg.DatabaseURL, dbCfg)
 	if err != nil {
@@ -56,8 +54,11 @@ func main() {
 			return
 		case <-ticker.C:
 			slog.Debug("Worker cycle starting")
-			appWorker.ProcessJobs(ctx, "classification", domain.PendingClassification, domain.Classifying)
-			appWorker.ProcessJobs(ctx, "crawling", domain.PendingCrawl, domain.Crawling)
+
+			storage.ResetStalledJobs(ctx)
+
+			appWorker.ProcessJobs(ctx, "classification", generated.CrawlStatusPendingClassification, generated.CrawlStatusClassifying)
+			appWorker.ProcessJobs(ctx, "crawling", generated.CrawlStatusPendingCrawl, generated.CrawlStatusCrawling)
 		}
 	}
 }
