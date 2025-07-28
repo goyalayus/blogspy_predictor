@@ -1,3 +1,5 @@
+-- woker/schema.sql
+
 CREATE TYPE crawl_status AS ENUM (
     'pending_classification',
     'pending_crawl',
@@ -34,4 +36,26 @@ CREATE TABLE url_edges (
 );
 
 CREATE INDEX idx_urls_netloc ON urls (netloc);
-CREATE INDEX idx_urls_status ON urls (status);
+
+-- DROP THE OLD, INEFFICIENT INDEX
+DROP INDEX IF EXISTS idx_urls_status;
+
+-- CREATE NEW, HIGHLY EFFICIENT PARTIAL INDEXES FOR THE JOB QUEUE
+-- This index is tiny and only contains rows waiting for classification.
+CREATE INDEX idx_urls_pending_classification ON urls (id)
+WHERE status = 'pending_classification';
+
+-- This index is tiny and only contains rows waiting for crawling.
+CREATE INDEX idx_urls_pending_crawl ON urls (id)
+WHERE status = 'pending_crawl';
+
+
+-- NEW TABLE FOR CACHING SYSTEM-WIDE COUNTERS
+CREATE TABLE system_counters (
+    counter_name TEXT PRIMARY KEY,
+    value BIGINT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ
+);
+
+-- PRE-POPULATE THE COUNTER WE NEED
+INSERT INTO system_counters (counter_name) VALUES ('pending_urls_count');

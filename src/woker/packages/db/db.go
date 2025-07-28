@@ -1,6 +1,5 @@
 // woker/packages/db/db.go
 
-// Package db
 package db
 
 import (
@@ -17,6 +16,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+const (
+	pendingURLCountLimit = 50000
+	pendingCounterName   = "pending_urls_count"
+)
+
 type Storage struct {
 	DB        *pgxpool.Pool
 	Queries   *generated.Queries
@@ -31,7 +35,18 @@ type Config struct {
 }
 
 func New(ctx context.Context, databaseURL string, cfg Config) (*Storage, error) {
-	db, err := pgxpool.New(ctx, databaseURL)
+	poolConfig, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse database url: %w", err)
+	}
+
+	// Only create a link queue if it's for a worker, not a reaper
+	var q chan domain.LinkBatch
+	if cfg.BatchWriteQueueSize > 0 {
+		q = make(chan domain.LinkBatch, cfg.BatchWriteQueueSize)
+	}
+
+	db, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create connection pool: %w", err)
 	}
@@ -40,17 +55,22 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Storage, error) 
 		DB:        db,
 		Queries:   generated.New(db),
 		cfg:       cfg,
-		linkQueue: make(chan domain.LinkBatch, cfg.BatchWriteQueueSize),
+		linkQueue: q,
 	}
 
-	go s.databaseWriter(ctx)
-	slog.Info("Database writer goroutine started")
+	// Only start the writer goroutine if the queue exists
+	if s.linkQueue != nil {
+		go s.databaseWriter(ctx)
+		slog.Info("Database writer goroutine started")
+	}
 
 	return s, nil
 }
 
 func (s *Storage) Close() {
-	close(s.linkQueue)
+	if s.linkQueue != nil {
+		close(s.linkQueue)
+	}
 	s.DB.Close()
 }
 
@@ -84,16 +104,36 @@ func (s *Storage) EnqueueLinks(batch domain.LinkBatch) {
 	}
 }
 
-func (s *Storage) ResetStalledJobs(ctx context.Context) {
+func (s *Storage) ResetStalledJobs(ctx context.Context) error {
 	interval := pgtype.Interval{
 		Microseconds: s.cfg.JobTimeout.Microseconds(),
 		Valid:        true,
 	}
+	return s.Queries.ResetStalledJobs(ctx, interval)
+}
 
-	err := s.Queries.ResetStalledJobs(ctx, interval)
+// GetPendingURLCount reads the cached value of pending URLs.
+func (s *Storage) GetPendingURLCount(ctx context.Context) (int64, error) {
+	return s.Queries.GetCounterValue(ctx, pendingCounterName)
+}
+
+// RefreshPendingURLCount performs the expensive COUNT and updates the cached value.
+// This should only be called by the Reaper.
+func (s *Storage) RefreshPendingURLCount(ctx context.Context, counterName string) error {
+	count, err := s.Queries.CountPendingURLs(ctx)
 	if err != nil {
-		slog.Error("Reaper: Failed to reset stalled jobs", "error", err)
+		return fmt.Errorf("failed to count pending urls: %w", err)
 	}
+
+	err = s.Queries.UpdateCounterValue(ctx, generated.UpdateCounterValueParams{
+		Value:        count,
+		CounterName: counterName,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update counter value: %w", err)
+	}
+	slog.Info("Refreshed pending URL count", "count", count)
+	return nil
 }
 
 func (s *Storage) databaseWriter(ctx context.Context) {
@@ -129,6 +169,16 @@ func (s *Storage) databaseWriter(ctx context.Context) {
 }
 
 func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkBatch) {
+	// THROTTLING CHECK: Before doing any work, check the pending queue size.
+	count, err := s.GetPendingURLCount(ctx)
+	if err != nil {
+		slog.Error("DB Writer: Failed to get pending URL count for throttling check", "error", err)
+		// Fail open: proceed with insertion if we can't get the count.
+	} else if count >= pendingURLCountLimit {
+		slog.Warn("DB Writer: Throttling link ingestion, pending queue is full", "count", count, "limit", pendingURLCountLimit)
+		return // Safely discard the new links and exit.
+	}
+
 	// 1. Aggregate all unique candidate links from all in-memory batches
 	allCandidateLinks := make(map[string]domain.NewLink)
 	for _, batch := range batches {
@@ -145,9 +195,8 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 		candidateURLStrings = append(candidateURLStrings, urlStr)
 	}
 
-	err := s.WithTransaction(ctx, func(qtx *generated.Queries, tx pgx.Tx) error {
-		// 2. Pre-filter to find which URLs already exist and fetch their IDs in a single query.
-		// This avoids the expensive INSERT...ON CONFLICT lookup and a redundant SELECT.
+	err = s.WithTransaction(ctx, func(qtx *generated.Queries, tx pgx.Tx) error {
+		// 2. Pre-filter to find which URLs already exist and fetch their IDs.
 		existingRows, err := tx.Query(ctx, `SELECT id, url FROM urls WHERE url = ANY($1)`, candidateURLStrings)
 		if err != nil {
 			return fmt.Errorf("failed to query for existing URLs: %w", err)
@@ -172,11 +221,8 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 			}
 		}
 
-		// 4. Batch insert ONLY the new URLs using a single INSERT with multiple VALUES.
-		// Use RETURNING to get the new IDs back without a second query.
+		// 4. Batch insert ONLY the new URLs.
 		if len(newURLsToInsert) > 0 {
-			// Note: pgx has a parameter limit of 65535. With 3 columns, we can insert
-			// ~21,845 rows per batch, which is more than enough for our queue size.
 			sql := "INSERT INTO urls (url, netloc, status) VALUES "
 			var args []interface{}
 			paramIdx := 1
@@ -195,7 +241,6 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 				return fmt.Errorf("failed to batch insert new urls: %w", err)
 			}
 
-			// Populate the map with the newly created IDs
 			if _, err := pgx.ForEachRow(insertedRows, []any{&idPtr, &urlPtr}, func() error {
 				urlToIDMap[urlPtr] = idPtr
 				return nil
@@ -206,25 +251,20 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 			insertedRows.Close()
 		}
 
-		// 5. Now that urlToIDMap is complete, build and bulk insert all edges using COPY.
+		// 5. Build and bulk insert all edges.
 		var edgeRows [][]any
 		for _, batch := range batches {
 			sourceURLID := batch.SourceURLID
 			for _, link := range batch.NewLinks {
 				if destID, ok := urlToIDMap[link.URL]; ok {
 					edgeRows = append(edgeRows, []any{sourceURLID, destID})
-				} else {
-					// This should theoretically not happen if logic is correct, but good to log.
-					slog.Warn("DB Writer: Could not find ID for a link to create an edge", "url", link.URL)
 				}
 			}
 		}
 
 		if len(edgeRows) > 0 {
 			_, err := tx.CopyFrom(ctx, pgx.Identifier{"url_edges"}, []string{"source_url_id", "dest_url_id"}, pgx.CopyFromRows(edgeRows))
-			// A unique_violation (23505) can happen if two workers process pages that link
-			// to each other at the same time. This is safe to ignore.
-			if err != nil && !strings.Contains(err.Error(), "23505") {
+			if err != nil && !strings.Contains(err.Error(), "23505") { // Ignore unique_violation
 				return fmt.Errorf("failed to bulk insert edges: %w", err)
 			}
 		}
@@ -234,7 +274,7 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 	if err != nil {
 		slog.Error("DB Writer: Transaction failed", "error", err)
 	} else {
-		slog.Info("DB Writer: Successfully committed batch", "candidate_urls", len(allCandidateLinks))
+		slog.Info("DB Writer: Successfully processed batch", "candidate_urls", len(allCandidateLinks))
 	}
 }
 

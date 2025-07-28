@@ -11,6 +11,30 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countPendingURLs = `-- name: CountPendingURLs :one
+SELECT count(*)::bigint FROM urls WHERE status IN ('pending_classification', 'pending_crawl')
+`
+
+func (q *Queries) CountPendingURLs(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countPendingURLs)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const getCounterValue = `-- name: GetCounterValue :one
+
+SELECT value FROM system_counters WHERE counter_name = $1
+`
+
+// QUERIES FOR THE REAPER AND THROTTLING MECHANISM
+func (q *Queries) GetCounterValue(ctx context.Context, counterName string) (int64, error) {
+	row := q.db.QueryRow(ctx, getCounterValue, counterName)
+	var value int64
+	err := row.Scan(&value)
+	return value, err
+}
+
 const getDomainDecisions = `-- name: GetDomainDecisions :many
 SELECT DISTINCT ON (netloc) netloc, status
 FROM urls
@@ -100,6 +124,7 @@ func (q *Queries) GetNetlocCounts(ctx context.Context, netlocs []string) ([]GetN
 }
 
 const lockJobsForUpdate = `-- name: LockJobsForUpdate :many
+
 SELECT id, url FROM urls
 WHERE status = $1
 FOR UPDATE SKIP LOCKED
@@ -116,6 +141,7 @@ type LockJobsForUpdateRow struct {
 	Url string
 }
 
+// woker/query.sql
 func (q *Queries) LockJobsForUpdate(ctx context.Context, arg LockJobsForUpdateParams) ([]LockJobsForUpdateRow, error) {
 	rows, err := q.db.Query(ctx, lockJobsForUpdate, arg.Status, arg.Limit)
 	if err != nil {
@@ -151,6 +177,20 @@ WHERE
 
 func (q *Queries) ResetStalledJobs(ctx context.Context, timeoutInterval pgtype.Interval) error {
 	_, err := q.db.Exec(ctx, resetStalledJobs, timeoutInterval)
+	return err
+}
+
+const updateCounterValue = `-- name: UpdateCounterValue :exec
+UPDATE system_counters SET value = $1, updated_at = NOW() WHERE counter_name = $2
+`
+
+type UpdateCounterValueParams struct {
+	Value       int64
+	CounterName string
+}
+
+func (q *Queries) UpdateCounterValue(ctx context.Context, arg UpdateCounterValueParams) error {
+	_, err := q.db.Exec(ctx, updateCounterValue, arg.Value, arg.CounterName)
 	return err
 }
 

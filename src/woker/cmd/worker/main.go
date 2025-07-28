@@ -55,7 +55,8 @@ func main() {
 		case <-ticker.C:
 			slog.Debug("Worker cycle starting")
 
-			storage.ResetStalledJobs(ctx)
+			// The responsibility for resetting stalled jobs is now handled by the Reaper service.
+			// storage.ResetStalledJobs(ctx)  // <-- THIS LINE IS DELETED.
 
 			appWorker.ProcessJobs(ctx, "classification", generated.CrawlStatusPendingClassification, generated.CrawlStatusClassifying)
 			appWorker.ProcessJobs(ctx, "crawling", generated.CrawlStatusPendingCrawl, generated.CrawlStatusCrawling)

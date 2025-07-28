@@ -1,3 +1,5 @@
+-- woker/query.sql
+
 -- name: LockJobsForUpdate :many
 SELECT id, url FROM urls
 WHERE status = $1
@@ -50,3 +52,14 @@ SELECT DISTINCT ON (netloc) netloc, status
 FROM urls
 WHERE netloc = ANY(@netlocs::text[])
   AND status IN ('pending_crawl', 'crawling', 'completed', 'irrelevant');
+
+-- QUERIES FOR THE REAPER AND THROTTLING MECHANISM
+
+-- name: GetCounterValue :one
+SELECT value FROM system_counters WHERE counter_name = $1;
+
+-- name: UpdateCounterValue :exec
+UPDATE system_counters SET value = $1, updated_at = NOW() WHERE counter_name = $2;
+
+-- name: CountPendingURLs :one
+SELECT count(*)::bigint FROM urls WHERE status IN ('pending_classification', 'pending_crawl');
