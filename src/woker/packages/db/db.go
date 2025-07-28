@@ -136,6 +136,12 @@ func (s *Storage) RefreshPendingURLCount(ctx context.Context, counterName string
 	return nil
 }
 
+// NEW: RefreshNetlocCounts calls the query to rebuild the netloc_counts cache.
+// This should only be called by the Reaper.
+func (s *Storage) RefreshNetlocCounts(ctx context.Context) error {
+	return s.Queries.RefreshNetlocCounts(ctx)
+}
+
 func (s *Storage) databaseWriter(ctx context.Context) {
 	ticker := time.NewTicker(s.cfg.BatchWriteInterval)
 	defer ticker.Stop()

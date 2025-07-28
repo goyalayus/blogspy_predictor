@@ -59,3 +59,11 @@ CREATE TABLE system_counters (
 
 -- PRE-POPULATE THE COUNTER WE NEED
 INSERT INTO system_counters (counter_name) VALUES ('pending_urls_count');
+
+
+-- NEW TABLE FOR CACHING NETLOC URL COUNTS
+CREATE TABLE netloc_counts (
+    netloc TEXT PRIMARY KEY,
+    url_count INT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL
+);

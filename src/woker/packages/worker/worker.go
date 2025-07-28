@@ -234,7 +234,8 @@ func (w *Worker) performCrawlLogic(ctx context.Context, qtx *generated.Queries, 
 	}
 	netlocCounts := make(map[string]int32)
 	for _, row := range netlocCountsRows {
-		netlocCounts[row.Netloc] = row.Count
+		// MODIFIED: The generated struct field is now UrlCount, not Count.
+		netlocCounts[row.Netloc] = row.UrlCount
 	}
 
 	existingURLsRows, err := qtx.GetExistingURLs(ctx, newLinks)

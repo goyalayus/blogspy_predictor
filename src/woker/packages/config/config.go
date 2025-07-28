@@ -11,19 +11,20 @@ import (
 )
 
 type Config struct {
-	DatabaseURL         string
-	MLApiURL            string
-	BatchSize           int
-	MaxWorkers          int
-	SleepInterval       time.Duration
-	JobTimeout          time.Duration
-	FetchTimeout        time.Duration
-	MaxUrlsPerNetloc    int
-	BatchWriteInterval  time.Duration
-	BatchWriteQueueSize int
-	RestrictedTLDs      []string
-	AllowedPathPrefixes []string
-	IgnoreExtensions    []string
+	DatabaseURL                string
+	MLApiURL                   string
+	BatchSize                  int
+	MaxWorkers                 int
+	SleepInterval              time.Duration
+	JobTimeout                 time.Duration
+	FetchTimeout               time.Duration
+	MaxUrlsPerNetloc           int
+	BatchWriteInterval         time.Duration
+	BatchWriteQueueSize        int
+	NetlocCountRefreshInterval time.Duration // NEW
+	RestrictedTLDs             []string
+	AllowedPathPrefixes        []string
+	IgnoreExtensions           []string
 }
 
 func Load() (Config, error) {
@@ -56,6 +57,9 @@ func Load() (Config, error) {
 	cfg.MaxUrlsPerNetloc, _ = strconv.Atoi(getEnv("MAX_URLS_PER_NETLOC", "130"))
 	cfg.BatchWriteInterval, _ = time.ParseDuration(getEnv("BATCH_WRITE_INTERVAL", "10s"))
 	cfg.BatchWriteQueueSize, _ = strconv.Atoi(getEnv("BATCH_WRITE_QUEUE_SIZE", "1000"))
+
+	// NEW: Add configurable interval for refreshing the netloc counts cache
+	cfg.NetlocCountRefreshInterval, _ = time.ParseDuration(getEnv("NETLOC_COUNT_REFRESH_INTERVAL", "20s"))
 
 	cfg.RestrictedTLDs = strings.Split(getEnv("RESTRICTED_TLDS", ".org,.edu"), ",")
 	cfg.AllowedPathPrefixes = strings.Split(getEnv("ALLOWED_PATH_PREFIXES", "/blog"), ",")

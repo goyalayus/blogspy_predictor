@@ -100,6 +100,12 @@ func (ns NullRenderingType) Value() (driver.Value, error) {
 	return string(ns.RenderingType), nil
 }
 
+type NetlocCount struct {
+	Netloc    string
+	UrlCount  int32
+	UpdatedAt pgtype.Timestamptz
+}
+
 type SystemCounter struct {
 	CounterName string
 	Value       int64

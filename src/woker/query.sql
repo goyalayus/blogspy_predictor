@@ -1,3 +1,4 @@
+--- FILE: src/woker/query.sql ---
 -- woker/query.sql
 
 -- name: LockJobsForUpdate :many
@@ -39,9 +40,9 @@ WHERE
     AND locked_at < NOW() - sqlc.arg('timeout_interval')::interval;
 
 -- name: GetNetlocCounts :many
-SELECT netloc, count(id)::int as count FROM urls
-WHERE netloc = ANY(@netlocs::text[])
-GROUP BY netloc;
+-- MODIFIED: This now reads from the fast cache table instead of the huge urls table.
+SELECT netloc, url_count FROM netloc_counts
+WHERE netloc = ANY(@netlocs::text[]);
 
 -- name: GetExistingURLs :many
 SELECT url FROM urls
@@ -63,3 +64,13 @@ UPDATE system_counters SET value = $1, updated_at = NOW() WHERE counter_name = $
 
 -- name: CountPendingURLs :one
 SELECT count(*)::bigint FROM urls WHERE status IN ('pending_classification', 'pending_crawl');
+
+-- NEW: Query for the Reaper to rebuild the netloc_counts cache table efficiently.
+-- name: RefreshNetlocCounts :exec
+INSERT INTO netloc_counts (netloc, url_count, updated_at)
+SELECT netloc, COUNT(id)::int, NOW()
+FROM urls
+GROUP BY netloc
+ON CONFLICT (netloc) DO UPDATE
+SET url_count = EXCLUDED.url_count,
+    updated_at = EXCLUDED.updated_at;

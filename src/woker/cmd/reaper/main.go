@@ -14,6 +14,7 @@ import (
 )
 
 const (
+	// DELETED: These constants are now derived from config or used directly
 	reaperInterval             = 20 * time.Second
 	resetStalledJobsInterval   = 15 * time.Minute
 	pendingCounterName         = "pending_urls_count"
@@ -43,30 +44,50 @@ func main() {
 	}
 	defer storage.Close()
 
-	ticker := time.NewTicker(reaperInterval)
-	defer ticker.Stop()
+	// MODIFIED: Use separate tickers for each distinct task for clarity and future flexibility.
+	mainTicker := time.NewTicker(20 * time.Second) // Ticker for frequent tasks
+	defer mainTicker.Stop()
 
-	loopCounter := 0
+	netlocCacheTicker := time.NewTicker(cfg.NetlocCountRefreshInterval) // NEW: Dedicated ticker for netloc cache
+	defer netlocCacheTicker.Stop()
+
+	stalledJobTicker := time.NewTicker(15 * time.Minute) // NEW: Dedicated ticker for resetting stalled jobs
+	defer stalledJobTicker.Stop()
+
+	slog.Info("Reaper tasks scheduled",
+		"pending_count_refresh", "20s",
+		"netloc_count_refresh", cfg.NetlocCountRefreshInterval,
+		"stalled_job_reset", "15m",
+	)
+
+	// Run tasks once on startup
+	go func() {
+		storage.RefreshPendingURLCount(ctx, "pending_urls_count")
+		storage.RefreshNetlocCounts(ctx)
+		storage.ResetStalledJobs(ctx)
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
 			slog.Info("Shutdown signal received. Exiting...")
 			return
-		case <-ticker.C:
-			loopCounter++
-			slog.Info("Reaper cycle starting")
-
-			// Task 1: Refresh the pending URL count (every cycle)
-			if err := storage.RefreshPendingURLCount(ctx, pendingCounterName); err != nil {
+		case <-mainTicker.C:
+			// Task 1: Refresh the pending URL count (every 20s)
+			if err := storage.RefreshPendingURLCount(ctx, "pending_urls_count"); err != nil {
 				slog.Error("Failed to refresh pending URL count", "error", err)
 			}
-
-			// Task 2: Reset stalled jobs (every N cycles)
-			if loopCounter%resetStalledJobsLoopCycles == 0 {
-				slog.Info("Resetting stalled jobs")
-				if err := storage.ResetStalledJobs(ctx); err != nil {
-					slog.Error("Failed to reset stalled jobs", "error", err)
-				}
+		case <-netlocCacheTicker.C: // NEW: Handle the netloc cache refresh
+			// Task 2: Refresh the netloc counts cache (every cfg.NetlocCountRefreshInterval)
+			slog.Info("Refreshing netloc counts cache")
+			if err := storage.RefreshNetlocCounts(ctx); err != nil {
+				slog.Error("Failed to refresh netloc counts cache", "error", err)
+			}
+		case <-stalledJobTicker.C: // NEW: Handle resetting stalled jobs
+			// Task 3: Reset stalled jobs (every 15m)
+			slog.Info("Resetting stalled jobs")
+			if err := storage.ResetStalledJobs(ctx); err != nil {
+				slog.Error("Failed to reset stalled jobs", "error", err)
 			}
 		}
 	}

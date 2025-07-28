@@ -93,16 +93,16 @@ func (q *Queries) GetExistingURLs(ctx context.Context, urls []string) ([]string,
 }
 
 const getNetlocCounts = `-- name: GetNetlocCounts :many
-SELECT netloc, count(id)::int as count FROM urls
+SELECT netloc, url_count FROM netloc_counts
 WHERE netloc = ANY($1::text[])
-GROUP BY netloc
 `
 
 type GetNetlocCountsRow struct {
-	Netloc string
-	Count  int32
+	Netloc   string
+	UrlCount int32
 }
 
+// MODIFIED: This now reads from the fast cache table instead of the huge urls table.
 func (q *Queries) GetNetlocCounts(ctx context.Context, netlocs []string) ([]GetNetlocCountsRow, error) {
 	rows, err := q.db.Query(ctx, getNetlocCounts, netlocs)
 	if err != nil {
@@ -112,7 +112,7 @@ func (q *Queries) GetNetlocCounts(ctx context.Context, netlocs []string) ([]GetN
 	var items []GetNetlocCountsRow
 	for rows.Next() {
 		var i GetNetlocCountsRow
-		if err := rows.Scan(&i.Netloc, &i.Count); err != nil {
+		if err := rows.Scan(&i.Netloc, &i.UrlCount); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -141,6 +141,7 @@ type LockJobsForUpdateRow struct {
 	Url string
 }
 
+// - FILE: src/woker/query.sql ---
 // woker/query.sql
 func (q *Queries) LockJobsForUpdate(ctx context.Context, arg LockJobsForUpdateParams) ([]LockJobsForUpdateRow, error) {
 	rows, err := q.db.Query(ctx, lockJobsForUpdate, arg.Status, arg.Limit)
@@ -160,6 +161,22 @@ func (q *Queries) LockJobsForUpdate(ctx context.Context, arg LockJobsForUpdatePa
 		return nil, err
 	}
 	return items, nil
+}
+
+const refreshNetlocCounts = `-- name: RefreshNetlocCounts :exec
+INSERT INTO netloc_counts (netloc, url_count, updated_at)
+SELECT netloc, COUNT(id)::int, NOW()
+FROM urls
+GROUP BY netloc
+ON CONFLICT (netloc) DO UPDATE
+SET url_count = EXCLUDED.url_count,
+    updated_at = EXCLUDED.updated_at
+`
+
+// NEW: Query for the Reaper to rebuild the netloc_counts cache table efficiently.
+func (q *Queries) RefreshNetlocCounts(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, refreshNetlocCounts)
+	return err
 }
 
 const resetStalledJobs = `-- name: ResetStalledJobs :exec
