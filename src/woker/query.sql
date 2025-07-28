@@ -12,21 +12,6 @@ UPDATE urls
 SET status = $1, locked_at = NOW()
 WHERE id = ANY(@job_ids::bigint[]);
 
--- name: UpdateStatus :exec
-UPDATE urls
-SET status = $1, error_message = $2, processed_at = NOW()
-WHERE id = $3;
-
--- name: UpdateStatusAndRendering :exec
-UPDATE urls
-SET status = $1, rendering = $2, error_message = $3, processed_at = NOW()
-WHERE id = $4;
-
--- name: UpdateURLAsCompleted :exec
-UPDATE urls
-SET status = $1, processed_at = NOW(), title = $2, description = $3, content = $4, rendering = $5
-WHERE id = $6;
-
 -- name: ResetStalledJobs :exec
 UPDATE urls
 SET
@@ -40,7 +25,6 @@ WHERE
     AND locked_at < NOW() - sqlc.arg('timeout_interval')::interval;
 
 -- name: GetNetlocCounts :many
--- MODIFIED: This now reads from the fast cache table instead of the huge urls table.
 SELECT netloc, url_count FROM netloc_counts
 WHERE netloc = ANY(@netlocs::text[]);
 
@@ -65,7 +49,6 @@ UPDATE system_counters SET value = $1, updated_at = NOW() WHERE counter_name = $
 -- name: CountPendingURLs :one
 SELECT count(*)::bigint FROM urls WHERE status IN ('pending_classification', 'pending_crawl');
 
--- NEW: Query for the Reaper to rebuild the netloc_counts cache table efficiently.
 -- name: RefreshNetlocCounts :exec
 INSERT INTO netloc_counts (netloc, url_count, updated_at)
 SELECT netloc, COUNT(id)::int, NOW()
@@ -74,3 +57,20 @@ GROUP BY netloc
 ON CONFLICT (netloc) DO UPDATE
 SET url_count = EXCLUDED.url_count,
     updated_at = EXCLUDED.updated_at;
+
+-- MODIFIED: Rewritten to use a more robust NOT EXISTS pattern.
+-- This finds 'completed' jobs whose content was lost due to a crash.
+-- name: ResetOrphanedCompletedJobs :execrows
+UPDATE urls u
+SET
+    status = 'pending_crawl'::crawl_status,
+    processed_at = NULL,
+    error_message = NULL,
+    locked_at = NULL
+WHERE
+    u.status = 'completed'
+    AND NOT EXISTS (
+        SELECT 1
+        FROM url_content uc
+        WHERE uc.url_id = u.id
+    );

@@ -21,10 +21,17 @@ type Config struct {
 	MaxUrlsPerNetloc           int
 	BatchWriteInterval         time.Duration
 	BatchWriteQueueSize        int
-	NetlocCountRefreshInterval time.Duration // NEW
+	NetlocCountRefreshInterval time.Duration
 	RestrictedTLDs             []string
 	AllowedPathPrefixes        []string
 	IgnoreExtensions           []string
+	// NEW: Configuration for the asynchronous writers
+	StatusUpdateBatchSize   int
+	StatusUpdateInterval    time.Duration
+	ContentInsertBatchSize  int
+	ContentInsertInterval   time.Duration
+	ContentInsertQueueSize  int
+	StatusUpdateQueueSize   int
 }
 
 func Load() (Config, error) {
@@ -55,11 +62,19 @@ func Load() (Config, error) {
 	cfg.JobTimeout, _ = time.ParseDuration(getEnv("JOB_TIMEOUT", "15m"))
 	cfg.FetchTimeout, _ = time.ParseDuration(getEnv("FETCH_TIMEOUT", "6s"))
 	cfg.MaxUrlsPerNetloc, _ = strconv.Atoi(getEnv("MAX_URLS_PER_NETLOC", "130"))
+	
+	// Legacy batching config, still used for link insertion
 	cfg.BatchWriteInterval, _ = time.ParseDuration(getEnv("BATCH_WRITE_INTERVAL", "10s"))
 	cfg.BatchWriteQueueSize, _ = strconv.Atoi(getEnv("BATCH_WRITE_QUEUE_SIZE", "1000"))
 
-	// NEW: Add configurable interval for refreshing the netloc counts cache
+	// NEW: Config for async writers
 	cfg.NetlocCountRefreshInterval, _ = time.ParseDuration(getEnv("NETLOC_COUNT_REFRESH_INTERVAL", "20s"))
+	cfg.StatusUpdateBatchSize, _ = strconv.Atoi(getEnv("STATUS_UPDATE_BATCH_SIZE", "500"))
+	cfg.StatusUpdateInterval, _ = time.ParseDuration(getEnv("STATUS_UPDATE_INTERVAL", "2s"))
+	cfg.StatusUpdateQueueSize, _ = strconv.Atoi(getEnv("STATUS_UPDATE_QUEUE_SIZE", "2000"))
+	cfg.ContentInsertBatchSize, _ = strconv.Atoi(getEnv("CONTENT_INSERT_BATCH_SIZE", "250"))
+	cfg.ContentInsertInterval, _ = time.ParseDuration(getEnv("CONTENT_INSERT_INTERVAL", "5s"))
+	cfg.ContentInsertQueueSize, _ = strconv.Atoi(getEnv("CONTENT_INSERT_QUEUE_SIZE", "1000"))
 
 	cfg.RestrictedTLDs = strings.Split(getEnv("RESTRICTED_TLDS", ".org,.edu"), ",")
 	cfg.AllowedPathPrefixes = strings.Split(getEnv("ALLOWED_PATH_PREFIXES", "/blog"), ",")

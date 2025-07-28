@@ -102,7 +102,6 @@ type GetNetlocCountsRow struct {
 	UrlCount int32
 }
 
-// MODIFIED: This now reads from the fast cache table instead of the huge urls table.
 func (q *Queries) GetNetlocCounts(ctx context.Context, netlocs []string) ([]GetNetlocCountsRow, error) {
 	rows, err := q.db.Query(ctx, getNetlocCounts, netlocs)
 	if err != nil {
@@ -173,10 +172,35 @@ SET url_count = EXCLUDED.url_count,
     updated_at = EXCLUDED.updated_at
 `
 
-// NEW: Query for the Reaper to rebuild the netloc_counts cache table efficiently.
 func (q *Queries) RefreshNetlocCounts(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, refreshNetlocCounts)
 	return err
+}
+
+const resetOrphanedCompletedJobs = `-- name: ResetOrphanedCompletedJobs :execrows
+UPDATE urls u
+SET
+    status = 'pending_crawl'::crawl_status,
+    processed_at = NULL,
+    error_message = NULL,
+    locked_at = NULL
+WHERE
+    u.status = 'completed'
+    AND NOT EXISTS (
+        SELECT 1
+        FROM url_content uc
+        WHERE uc.url_id = u.id
+    )
+`
+
+// MODIFIED: Rewritten to use a more robust NOT EXISTS pattern.
+// This finds 'completed' jobs whose content was lost due to a crash.
+func (q *Queries) ResetOrphanedCompletedJobs(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, resetOrphanedCompletedJobs)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const resetStalledJobs = `-- name: ResetStalledJobs :exec
@@ -224,72 +248,5 @@ type UpdateJobStatusToInProgressParams struct {
 
 func (q *Queries) UpdateJobStatusToInProgress(ctx context.Context, arg UpdateJobStatusToInProgressParams) error {
 	_, err := q.db.Exec(ctx, updateJobStatusToInProgress, arg.Status, arg.JobIds)
-	return err
-}
-
-const updateStatus = `-- name: UpdateStatus :exec
-UPDATE urls
-SET status = $1, error_message = $2, processed_at = NOW()
-WHERE id = $3
-`
-
-type UpdateStatusParams struct {
-	Status       CrawlStatus
-	ErrorMessage pgtype.Text
-	ID           int64
-}
-
-func (q *Queries) UpdateStatus(ctx context.Context, arg UpdateStatusParams) error {
-	_, err := q.db.Exec(ctx, updateStatus, arg.Status, arg.ErrorMessage, arg.ID)
-	return err
-}
-
-const updateStatusAndRendering = `-- name: UpdateStatusAndRendering :exec
-UPDATE urls
-SET status = $1, rendering = $2, error_message = $3, processed_at = NOW()
-WHERE id = $4
-`
-
-type UpdateStatusAndRenderingParams struct {
-	Status       CrawlStatus
-	Rendering    NullRenderingType
-	ErrorMessage pgtype.Text
-	ID           int64
-}
-
-func (q *Queries) UpdateStatusAndRendering(ctx context.Context, arg UpdateStatusAndRenderingParams) error {
-	_, err := q.db.Exec(ctx, updateStatusAndRendering,
-		arg.Status,
-		arg.Rendering,
-		arg.ErrorMessage,
-		arg.ID,
-	)
-	return err
-}
-
-const updateURLAsCompleted = `-- name: UpdateURLAsCompleted :exec
-UPDATE urls
-SET status = $1, processed_at = NOW(), title = $2, description = $3, content = $4, rendering = $5
-WHERE id = $6
-`
-
-type UpdateURLAsCompletedParams struct {
-	Status      CrawlStatus
-	Title       pgtype.Text
-	Description pgtype.Text
-	Content     pgtype.Text
-	Rendering   NullRenderingType
-	ID          int64
-}
-
-func (q *Queries) UpdateURLAsCompleted(ctx context.Context, arg UpdateURLAsCompletedParams) error {
-	_, err := q.db.Exec(ctx, updateURLAsCompleted,
-		arg.Status,
-		arg.Title,
-		arg.Description,
-		arg.Content,
-		arg.Rendering,
-		arg.ID,
-	)
 	return err
 }

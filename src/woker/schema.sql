@@ -15,6 +15,7 @@ CREATE TYPE rendering_type AS ENUM (
     'CSR'
 );
 
+-- MODIFIED: This is the "hot" table for job queueing. It's now much thinner.
 CREATE TABLE urls (
     id BIGSERIAL PRIMARY KEY,
     url TEXT NOT NULL UNIQUE,
@@ -23,7 +24,15 @@ CREATE TABLE urls (
     rendering rendering_type,
     error_message TEXT,
     locked_at TIMESTAMPTZ,
-    processed_at TIMESTAMPTZ,
+    processed_at TIMESTAMPTZ
+    -- DELETED: title, description, content have been moved.
+);
+
+-- NEW: This is the "cold" table for storing "write-once" content.
+-- It is UNLOGGED for maximum write performance, as the data is non-critical
+-- and can be repopulated by re-crawling. It will be truncated on DB crash.
+CREATE UNLOGGED TABLE url_content (
+    url_id BIGINT PRIMARY KEY REFERENCES urls(id) ON DELETE CASCADE,
     title TEXT,
     description TEXT,
     content TEXT
@@ -37,31 +46,22 @@ CREATE TABLE url_edges (
 
 CREATE INDEX idx_urls_netloc ON urls (netloc);
 
--- DROP THE OLD, INEFFICIENT INDEX
 DROP INDEX IF EXISTS idx_urls_status;
 
--- CREATE NEW, HIGHLY EFFICIENT PARTIAL INDEXES FOR THE JOB QUEUE
--- This index is tiny and only contains rows waiting for classification.
 CREATE INDEX idx_urls_pending_classification ON urls (id)
 WHERE status = 'pending_classification';
 
--- This index is tiny and only contains rows waiting for crawling.
 CREATE INDEX idx_urls_pending_crawl ON urls (id)
 WHERE status = 'pending_crawl';
 
-
--- NEW TABLE FOR CACHING SYSTEM-WIDE COUNTERS
 CREATE TABLE system_counters (
     counter_name TEXT PRIMARY KEY,
     value BIGINT NOT NULL DEFAULT 0,
     updated_at TIMESTAMPTZ
 );
 
--- PRE-POPULATE THE COUNTER WE NEED
 INSERT INTO system_counters (counter_name) VALUES ('pending_urls_count');
 
-
--- NEW TABLE FOR CACHING NETLOC URL COUNTS
 CREATE TABLE netloc_counts (
     netloc TEXT PRIMARY KEY,
     url_count INT NOT NULL DEFAULT 0,

@@ -121,9 +121,13 @@ type Url struct {
 	ErrorMessage pgtype.Text
 	LockedAt     pgtype.Timestamptz
 	ProcessedAt  pgtype.Timestamptz
-	Title        pgtype.Text
-	Description  pgtype.Text
-	Content      pgtype.Text
+}
+
+type UrlContent struct {
+	UrlID       int64
+	Title       pgtype.Text
+	Description pgtype.Text
+	Content     pgtype.Text
 }
 
 type UrlEdge struct {

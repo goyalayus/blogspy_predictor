@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+	"worker/packages/config"
 	"worker/packages/domain"
 	"worker/packages/generated"
 
@@ -22,28 +23,18 @@ const (
 )
 
 type Storage struct {
-	DB        *pgxpool.Pool
-	Queries   *generated.Queries
-	cfg       Config
-	linkQueue chan domain.LinkBatch
+	DB                 *pgxpool.Pool
+	Queries            *generated.Queries
+	cfg                config.Config
+	linkQueue          chan domain.LinkBatch
+	statusUpdateQueue  chan domain.StatusUpdateResult
+	contentInsertQueue chan domain.ContentInsertResult
 }
 
-type Config struct {
-	JobTimeout          time.Duration
-	BatchWriteInterval  time.Duration
-	BatchWriteQueueSize int
-}
-
-func New(ctx context.Context, databaseURL string, cfg Config) (*Storage, error) {
-	poolConfig, err := pgxpool.ParseConfig(databaseURL)
+func New(ctx context.Context, cfg config.Config) (*Storage, error) {
+	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse database url: %w", err)
-	}
-
-	// Only create a link queue if it's for a worker, not a reaper
-	var q chan domain.LinkBatch
-	if cfg.BatchWriteQueueSize > 0 {
-		q = make(chan domain.LinkBatch, cfg.BatchWriteQueueSize)
 	}
 
 	db, err := pgxpool.NewWithConfig(ctx, poolConfig)
@@ -52,26 +43,35 @@ func New(ctx context.Context, databaseURL string, cfg Config) (*Storage, error) 
 	}
 
 	s := &Storage{
-		DB:        db,
-		Queries:   generated.New(db),
-		cfg:       cfg,
-		linkQueue: q,
+		DB:                 db,
+		Queries:            generated.New(db),
+		cfg:                cfg,
+		linkQueue:          make(chan domain.LinkBatch, cfg.BatchWriteQueueSize),
+		statusUpdateQueue:  make(chan domain.StatusUpdateResult, cfg.StatusUpdateQueueSize),
+		contentInsertQueue: make(chan domain.ContentInsertResult, cfg.ContentInsertQueueSize),
 	}
 
-	// Only start the writer goroutine if the queue exists
-	if s.linkQueue != nil {
-		go s.databaseWriter(ctx)
-		slog.Info("Database writer goroutine started")
-	}
+	go s.linkWriter(ctx)
+	go s.statusWriter(ctx)
+	go s.contentWriter(ctx)
+	slog.Info("Asynchronous database writers started", "count", 3)
 
 	return s, nil
 }
 
+// ... (Close, WithTransaction, Enqueue methods are unchanged) ...
 func (s *Storage) Close() {
 	if s.linkQueue != nil {
 		close(s.linkQueue)
 	}
+	if s.statusUpdateQueue != nil {
+		close(s.statusUpdateQueue)
+	}
+	if s.contentInsertQueue != nil {
+		close(s.contentInsertQueue)
+	}
 	s.DB.Close()
+	slog.Info("Database connection and writer channels closed.")
 }
 
 func (s *Storage) WithTransaction(ctx context.Context, fn func(qtx *generated.Queries, tx pgx.Tx) error) (err error) {
@@ -104,6 +104,24 @@ func (s *Storage) EnqueueLinks(batch domain.LinkBatch) {
 	}
 }
 
+func (s *Storage) EnqueueStatusUpdate(result domain.StatusUpdateResult) {
+	select {
+	case s.statusUpdateQueue <- result:
+	default:
+		slog.Warn("Status update queue is full. Dropping status update.", "job_id", result.ID)
+	}
+}
+
+func (s *Storage) EnqueueContentInsert(result domain.ContentInsertResult) {
+	select {
+	case s.contentInsertQueue <- result:
+	default:
+		slog.Warn("Content insert queue is full. Dropping content insert.", "job_id", result.ID)
+	}
+}
+
+// --- Reaper and Throttling Methods ---
+
 func (s *Storage) ResetStalledJobs(ctx context.Context) error {
 	interval := pgtype.Interval{
 		Microseconds: s.cfg.JobTimeout.Microseconds(),
@@ -112,21 +130,29 @@ func (s *Storage) ResetStalledJobs(ctx context.Context) error {
 	return s.Queries.ResetStalledJobs(ctx, interval)
 }
 
-// GetPendingURLCount reads the cached value of pending URLs.
+// NEW: Method for the Reaper to re-queue completed jobs with missing content.
+func (s *Storage) ResetOrphanedJobs(ctx context.Context) error {
+	rowsAffected, err := s.Queries.ResetOrphanedCompletedJobs(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to reset orphaned jobs: %w", err)
+	}
+	if rowsAffected > 0 {
+		slog.Info("Re-queued orphaned completed jobs for crawling", "count", rowsAffected)
+	}
+	return nil
+}
+
 func (s *Storage) GetPendingURLCount(ctx context.Context) (int64, error) {
 	return s.Queries.GetCounterValue(ctx, pendingCounterName)
 }
 
-// RefreshPendingURLCount performs the expensive COUNT and updates the cached value.
-// This should only be called by the Reaper.
 func (s *Storage) RefreshPendingURLCount(ctx context.Context, counterName string) error {
 	count, err := s.Queries.CountPendingURLs(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to count pending urls: %w", err)
 	}
-
 	err = s.Queries.UpdateCounterValue(ctx, generated.UpdateCounterValueParams{
-		Value:        count,
+		Value:       count,
 		CounterName: counterName,
 	})
 	if err != nil {
@@ -136,13 +162,177 @@ func (s *Storage) RefreshPendingURLCount(ctx context.Context, counterName string
 	return nil
 }
 
-// NEW: RefreshNetlocCounts calls the query to rebuild the netloc_counts cache.
-// This should only be called by the Reaper.
 func (s *Storage) RefreshNetlocCounts(ctx context.Context) error {
 	return s.Queries.RefreshNetlocCounts(ctx)
 }
 
-func (s *Storage) databaseWriter(ctx context.Context) {
+// ... (all writer goroutines are unchanged) ...
+func (s *Storage) statusWriter(ctx context.Context) {
+	ticker := time.NewTicker(s.cfg.StatusUpdateInterval)
+	defer ticker.Stop()
+	var batch []domain.StatusUpdateResult
+
+	for {
+		select {
+		case <-ctx.Done():
+			if len(batch) > 0 {
+				slog.Info("Status Writer: Final write on shutdown...")
+				s.processStatusUpdates(context.Background(), batch)
+			}
+			slog.Info("Status Writer: Shutdown.")
+			return
+		case result, ok := <-s.statusUpdateQueue:
+			if !ok {
+				if len(batch) > 0 {
+					s.processStatusUpdates(context.Background(), batch)
+				}
+				slog.Info("Status Writer: Queue closed, exiting.")
+				return
+			}
+			batch = append(batch, result)
+			if len(batch) >= s.cfg.StatusUpdateBatchSize {
+				s.processStatusUpdates(ctx, batch)
+				batch = nil
+			}
+		case <-ticker.C:
+			if len(batch) > 0 {
+				s.processStatusUpdates(ctx, batch)
+				batch = nil
+			}
+		}
+	}
+}
+
+func (s *Storage) processStatusUpdates(ctx context.Context, batch []domain.StatusUpdateResult) {
+	if len(batch) == 0 {
+		return
+	}
+
+	var statusSQL, errorMsgSQL, renderingSQL strings.Builder
+	var args []interface{}
+	var ids []int64
+	paramIdx := 1
+
+	statusSQL.WriteString("CASE id ")
+	errorMsgSQL.WriteString("CASE id ")
+	renderingSQL.WriteString("CASE id ")
+
+	for _, item := range batch {
+		ids = append(ids, item.ID)
+
+		statusSQL.WriteString(fmt.Sprintf("WHEN $%d THEN $%d ", paramIdx, paramIdx+1))
+		args = append(args, item.ID, item.Status)
+		paramIdx += 2
+
+		errorMsgSQL.WriteString(fmt.Sprintf("WHEN $%d THEN $%d ", paramIdx, paramIdx+1))
+		args = append(args, item.ID, pgtype.Text{String: item.ErrorMsg, Valid: item.ErrorMsg != ""})
+		paramIdx += 2
+
+		if item.Rendering != "" {
+			renderingSQL.WriteString(fmt.Sprintf("WHEN $%d THEN $%d ", paramIdx, paramIdx+1))
+			args = append(args, item.ID, item.Rendering)
+			paramIdx += 2
+		}
+	}
+
+	idsParam := fmt.Sprintf("$%d", paramIdx)
+	args = append(args, ids)
+
+	statusSQL.WriteString("END")
+	errorMsgSQL.WriteString("END")
+	renderingSQL.WriteString("ELSE rendering END")
+
+	sql := fmt.Sprintf(`UPDATE urls SET status = %s, error_message = %s, rendering = %s, processed_at = NOW() WHERE id = ANY(%s)`,
+		statusSQL.String(), errorMsgSQL.String(), renderingSQL.String(), idsParam)
+
+	_, err := s.DB.Exec(ctx, sql, args...)
+	if err != nil {
+		slog.Error("Status Writer: Failed to execute batch update", "error", err)
+	} else {
+		slog.Info("Status Writer: Successfully processed batch", "count", len(batch))
+	}
+}
+
+func (s *Storage) contentWriter(ctx context.Context) {
+	ticker := time.NewTicker(s.cfg.ContentInsertInterval)
+	defer ticker.Stop()
+	var batch []domain.ContentInsertResult
+
+	for {
+		select {
+		case <-ctx.Done():
+			if len(batch) > 0 {
+				slog.Info("Content Writer: Final write on shutdown...")
+				s.processContentInserts(context.Background(), batch)
+			}
+			slog.Info("Content Writer: Shutdown.")
+			return
+		case result, ok := <-s.contentInsertQueue:
+			if !ok {
+				if len(batch) > 0 {
+					s.processContentInserts(context.Background(), batch)
+				}
+				slog.Info("Content Writer: Queue closed, exiting.")
+				return
+			}
+			batch = append(batch, result)
+			if len(batch) >= s.cfg.ContentInsertBatchSize {
+				s.processContentInserts(ctx, batch)
+				batch = nil
+			}
+		case <-ticker.C:
+			if len(batch) > 0 {
+				s.processContentInserts(ctx, batch)
+				batch = nil
+			}
+		}
+	}
+}
+
+func (s *Storage) processContentInserts(ctx context.Context, batch []domain.ContentInsertResult) {
+	if len(batch) == 0 {
+		return
+	}
+
+	err := s.WithTransaction(ctx, func(qtx *generated.Queries, tx pgx.Tx) error {
+		var ids []int64
+		for _, item := range batch {
+			ids = append(ids, item.ID)
+		}
+		updateSQL := `UPDATE urls SET status = $1, rendering = $2, processed_at = NOW() WHERE id = ANY($3)`
+		if _, err := tx.Exec(ctx, updateSQL, generated.CrawlStatusCompleted, generated.RenderingTypeSSR, ids); err != nil {
+			return fmt.Errorf("failed to batch update urls to completed: %w", err)
+		}
+
+		rows := make([][]interface{}, len(batch))
+		for i, item := range batch {
+			rows[i] = []interface{}{
+				item.ID,
+				pgtype.Text{String: item.Title, Valid: item.Title != ""},
+				pgtype.Text{String: item.Description, Valid: item.Description != ""},
+				pgtype.Text{String: item.TextContent, Valid: item.TextContent != ""},
+			}
+		}
+
+		_, err := tx.CopyFrom(ctx,
+			pgx.Identifier{"url_content"},
+			[]string{"url_id", "title", "description", "content"},
+			pgx.CopyFromRows(rows),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to bulk insert content via COPY: %w", err)
+		}
+		return nil
+	})
+
+	if err != nil {
+		slog.Error("Content Writer: Transaction failed", "error", err)
+	} else {
+		slog.Info("Content Writer: Successfully processed batch", "count", len(batch))
+	}
+}
+
+func (s *Storage) linkWriter(ctx context.Context) {
 	ticker := time.NewTicker(s.cfg.BatchWriteInterval)
 	defer ticker.Stop()
 	var batches []domain.LinkBatch
@@ -151,17 +341,17 @@ func (s *Storage) databaseWriter(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			if len(batches) > 0 {
-				slog.Info("DB Writer: Final write on shutdown...")
+				slog.Info("Link Writer: Final write on shutdown...")
 				s.processLinkBatches(context.Background(), batches)
 			}
-			slog.Info("DB Writer: Shutdown.")
+			slog.Info("Link Writer: Shutdown.")
 			return
 		case batch, ok := <-s.linkQueue:
 			if !ok {
 				if len(batches) > 0 {
 					s.processLinkBatches(context.Background(), batches)
 				}
-				slog.Info("DB Writer: Link queue closed, exiting.")
+				slog.Info("Link Writer: Link queue closed, exiting.")
 				return
 			}
 			batches = append(batches, batch)
@@ -175,17 +365,14 @@ func (s *Storage) databaseWriter(ctx context.Context) {
 }
 
 func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkBatch) {
-	// THROTTLING CHECK: Before doing any work, check the pending queue size.
 	count, err := s.GetPendingURLCount(ctx)
 	if err != nil {
-		slog.Error("DB Writer: Failed to get pending URL count for throttling check", "error", err)
-		// Fail open: proceed with insertion if we can't get the count.
+		slog.Error("Link Writer: Failed to get pending URL count for throttling check", "error", err)
 	} else if count >= pendingURLCountLimit {
-		slog.Warn("DB Writer: Throttling link ingestion, pending queue is full", "count", count, "limit", pendingURLCountLimit)
-		return // Safely discard the new links and exit.
+		slog.Warn("Link Writer: Throttling link ingestion, pending queue is full", "count", count, "limit", pendingURLCountLimit)
+		return
 	}
 
-	// 1. Aggregate all unique candidate links from all in-memory batches
 	allCandidateLinks := make(map[string]domain.NewLink)
 	for _, batch := range batches {
 		for _, link := range batch.NewLinks {
@@ -202,7 +389,6 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 	}
 
 	err = s.WithTransaction(ctx, func(qtx *generated.Queries, tx pgx.Tx) error {
-		// 2. Pre-filter to find which URLs already exist and fetch their IDs.
 		existingRows, err := tx.Query(ctx, `SELECT id, url FROM urls WHERE url = ANY($1)`, candidateURLStrings)
 		if err != nil {
 			return fmt.Errorf("failed to query for existing URLs: %w", err)
@@ -219,7 +405,6 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 		}
 		existingRows.Close()
 
-		// 3. Identify the subset of URLs that are truly new.
 		var newURLsToInsert []domain.NewLink
 		for urlStr, link := range allCandidateLinks {
 			if _, exists := urlToIDMap[urlStr]; !exists {
@@ -227,7 +412,6 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 			}
 		}
 
-		// 4. Batch insert ONLY the new URLs.
 		if len(newURLsToInsert) > 0 {
 			sql := "INSERT INTO urls (url, netloc, status) VALUES "
 			var args []interface{}
@@ -257,7 +441,6 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 			insertedRows.Close()
 		}
 
-		// 5. Build and bulk insert all edges.
 		var edgeRows [][]any
 		for _, batch := range batches {
 			sourceURLID := batch.SourceURLID
@@ -270,7 +453,7 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 
 		if len(edgeRows) > 0 {
 			_, err := tx.CopyFrom(ctx, pgx.Identifier{"url_edges"}, []string{"source_url_id", "dest_url_id"}, pgx.CopyFromRows(edgeRows))
-			if err != nil && !strings.Contains(err.Error(), "23505") { // Ignore unique_violation
+			if err != nil && !strings.Contains(err.Error(), "23505") {
 				return fmt.Errorf("failed to bulk insert edges: %w", err)
 			}
 		}
@@ -278,9 +461,9 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 	})
 
 	if err != nil {
-		slog.Error("DB Writer: Transaction failed", "error", err)
+		slog.Error("Link Writer: Transaction failed", "error", err)
 	} else {
-		slog.Info("DB Writer: Successfully processed batch", "candidate_urls", len(allCandidateLinks))
+		slog.Info("Link Writer: Successfully processed batch", "candidate_urls", len(allCandidateLinks))
 	}
 }
 

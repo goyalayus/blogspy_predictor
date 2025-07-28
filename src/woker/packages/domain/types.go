@@ -43,6 +43,7 @@ type PredictionResponse struct {
 	IsPersonalBlog bool `json:"is_personal_blog"`
 }
 
+// Still used for the link ingestion writer
 type LinkBatch struct {
 	SourceURLID int64
 	NewLinks    []NewLink
@@ -51,4 +52,21 @@ type LinkBatch struct {
 type NewLink struct {
 	URL, Netloc string
 	Status      CrawlStatus
+}
+
+// NEW: Struct for enqueuing status updates for failed/irrelevant jobs
+type StatusUpdateResult struct {
+	ID        int64
+	Status    CrawlStatus
+	Rendering RenderingType // Used for CSR case
+	ErrorMsg  string
+}
+
+// NEW: Struct for enqueuing content for completed jobs
+type ContentInsertResult struct {
+	ID          int64
+	Title       string
+	Description string
+	TextContent string
+	Rendering   RenderingType
 }
