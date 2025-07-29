@@ -55,7 +55,7 @@ CREATE TABLE urls (
 -- NEW: This is the "cold" table for storing "write-once" content.
 -- It is UNLOGGED for maximum write performance, as the data is non-critical
 -- and can be repopulated by re-crawling. It will be truncated on DB crash.
-CREATE UNLOGGED TABLE url_content (
+CREATE TABLE url_content (
     url_id BIGINT PRIMARY KEY REFERENCES urls(id) ON DELETE CASCADE,
     title TEXT,
     description TEXT,
