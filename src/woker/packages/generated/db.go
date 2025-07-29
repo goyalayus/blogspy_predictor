@@ -2,6 +2,7 @@
 // versions:
 //   sqlc v1.29.0
 
+// Package generated
 package generated
 
 import (

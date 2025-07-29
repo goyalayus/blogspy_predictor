@@ -100,6 +100,15 @@ func (ns NullRenderingType) Value() (driver.Value, error) {
 	return string(ns.RenderingType), nil
 }
 
+type ClassificationQueue struct {
+	ID        int64
+	UrlID     int64
+	Payload   []byte
+	Status    string
+	CreatedAt pgtype.Timestamptz
+	LockedAt  pgtype.Timestamptz
+}
+
 type NetlocCount struct {
 	Netloc    string
 	UrlCount  int32

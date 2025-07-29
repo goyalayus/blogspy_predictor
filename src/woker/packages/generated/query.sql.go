@@ -22,6 +22,34 @@ func (q *Queries) CountPendingURLs(ctx context.Context) (int64, error) {
 	return column_1, err
 }
 
+const deleteClassificationJobs = `-- name: DeleteClassificationJobs :exec
+DELETE FROM classification_queue
+WHERE id = ANY($1::bigint[])
+`
+
+func (q *Queries) DeleteClassificationJobs(ctx context.Context, jobIds []int64) error {
+	_, err := q.db.Exec(ctx, deleteClassificationJobs, jobIds)
+	return err
+}
+
+const enqueueClassificationJob = `-- name: EnqueueClassificationJob :one
+INSERT INTO classification_queue (url_id, payload)
+VALUES ($1, $2)
+RETURNING id
+`
+
+type EnqueueClassificationJobParams struct {
+	UrlID   int64
+	Payload []byte
+}
+
+func (q *Queries) EnqueueClassificationJob(ctx context.Context, arg EnqueueClassificationJobParams) (int64, error) {
+	row := q.db.QueryRow(ctx, enqueueClassificationJob, arg.UrlID, arg.Payload)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const getCounterValue = `-- name: GetCounterValue :one
 
 SELECT value FROM system_counters WHERE counter_name = $1
@@ -122,8 +150,49 @@ func (q *Queries) GetNetlocCounts(ctx context.Context, netlocs []string) ([]GetN
 	return items, nil
 }
 
-const lockJobsForUpdate = `-- name: LockJobsForUpdate :many
+const lockAndFetchClassificationJobs = `-- name: LockAndFetchClassificationJobs :many
+WITH locked_jobs AS (
+    SELECT id
+    FROM classification_queue
+    WHERE status = 'new'
+    ORDER BY id
+    FOR UPDATE SKIP LOCKED
+    LIMIT $1
+)
+UPDATE classification_queue q
+SET status = 'processing', locked_at = NOW()
+FROM locked_jobs lj
+WHERE q.id = lj.id
+RETURNING q.id, q.url_id, q.payload
+`
 
+type LockAndFetchClassificationJobsRow struct {
+	ID      int64
+	UrlID   int64
+	Payload []byte
+}
+
+func (q *Queries) LockAndFetchClassificationJobs(ctx context.Context, limit int32) ([]LockAndFetchClassificationJobsRow, error) {
+	rows, err := q.db.Query(ctx, lockAndFetchClassificationJobs, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LockAndFetchClassificationJobsRow
+	for rows.Next() {
+		var i LockAndFetchClassificationJobsRow
+		if err := rows.Scan(&i.ID, &i.UrlID, &i.Payload); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockJobsForUpdate = `-- name: LockJobsForUpdate :many
 SELECT id, url FROM urls
 WHERE status = $1
 FOR UPDATE SKIP LOCKED
@@ -140,8 +209,6 @@ type LockJobsForUpdateRow struct {
 	Url string
 }
 
-// - FILE: src/woker/query.sql ---
-// woker/query.sql
 func (q *Queries) LockJobsForUpdate(ctx context.Context, arg LockJobsForUpdateParams) ([]LockJobsForUpdateRow, error) {
 	rows, err := q.db.Query(ctx, lockJobsForUpdate, arg.Status, arg.Limit)
 	if err != nil {
@@ -201,6 +268,17 @@ func (q *Queries) ResetOrphanedCompletedJobs(ctx context.Context) (int64, error)
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const resetStalledClassificationJobs = `-- name: ResetStalledClassificationJobs :exec
+UPDATE classification_queue
+SET status = 'new', locked_at = NULL
+WHERE status = 'processing' AND locked_at < NOW() - $1::interval
+`
+
+func (q *Queries) ResetStalledClassificationJobs(ctx context.Context, timeout pgtype.Interval) error {
+	_, err := q.db.Exec(ctx, resetStalledClassificationJobs, timeout)
+	return err
 }
 
 const resetStalledJobs = `-- name: ResetStalledJobs :exec

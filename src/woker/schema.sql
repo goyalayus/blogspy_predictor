@@ -67,3 +67,14 @@ CREATE TABLE netloc_counts (
     url_count INT NOT NULL DEFAULT 0,
     updated_at TIMESTAMPTZ NOT NULL
 );
+
+CREATE TABLE classification_queue (
+    id BIGSERIAL PRIMARY KEY,
+    url_id BIGINT NOT NULL UNIQUE REFERENCES urls(id) ON DELETE CASCADE,
+    payload JSONB NOT NULL,
+    status TEXT NOT NULL DEFAULT 'new',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    locked_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_classification_queue_status ON classification_queue (status);

@@ -26,12 +26,12 @@ type Config struct {
 	AllowedPathPrefixes        []string
 	IgnoreExtensions           []string
 	// NEW: Configuration for the asynchronous writers
-	StatusUpdateBatchSize   int
-	StatusUpdateInterval    time.Duration
-	ContentInsertBatchSize  int
-	ContentInsertInterval   time.Duration
-	ContentInsertQueueSize  int
-	StatusUpdateQueueSize   int
+	StatusUpdateBatchSize  int
+	StatusUpdateInterval   time.Duration
+	ContentInsertBatchSize int
+	ContentInsertInterval  time.Duration
+	ContentInsertQueueSize int
+	StatusUpdateQueueSize  int
 }
 
 func Load() (Config, error) {
@@ -62,7 +62,7 @@ func Load() (Config, error) {
 	cfg.JobTimeout, _ = time.ParseDuration(getEnv("JOB_TIMEOUT", "15m"))
 	cfg.FetchTimeout, _ = time.ParseDuration(getEnv("FETCH_TIMEOUT", "6s"))
 	cfg.MaxUrlsPerNetloc, _ = strconv.Atoi(getEnv("MAX_URLS_PER_NETLOC", "130"))
-	
+
 	// Legacy batching config, still used for link insertion
 	cfg.BatchWriteInterval, _ = time.ParseDuration(getEnv("BATCH_WRITE_INTERVAL", "10s"))
 	cfg.BatchWriteQueueSize, _ = strconv.Atoi(getEnv("BATCH_WRITE_QUEUE_SIZE", "1000"))

@@ -64,3 +64,4 @@ Thumbs.db
 
 logs/
 digest.txt
+src/woker/blogspy_backup_before_migration.sql

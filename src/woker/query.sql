@@ -1,6 +1,3 @@
---- FILE: src/woker/query.sql ---
--- woker/query.sql
-
 -- name: LockJobsForUpdate :many
 SELECT id, url FROM urls
 WHERE status = $1
@@ -74,3 +71,32 @@ WHERE
         FROM url_content uc
         WHERE uc.url_id = u.id
     );
+
+-- name: EnqueueClassificationJob :one
+INSERT INTO classification_queue (url_id, payload)
+VALUES ($1, $2)
+RETURNING id;
+
+-- name: LockAndFetchClassificationJobs :many
+WITH locked_jobs AS (
+    SELECT id
+    FROM classification_queue
+    WHERE status = 'new'
+    ORDER BY id
+    FOR UPDATE SKIP LOCKED
+    LIMIT $1
+)
+UPDATE classification_queue q
+SET status = 'processing', locked_at = NOW()
+FROM locked_jobs lj
+WHERE q.id = lj.id
+RETURNING q.id, q.url_id, q.payload;
+
+-- name: DeleteClassificationJobs :exec
+DELETE FROM classification_queue
+WHERE id = ANY(@job_ids::bigint[]);
+
+-- name: ResetStalledClassificationJobs :exec
+UPDATE classification_queue
+SET status = 'new', locked_at = NULL
+WHERE status = 'processing' AND locked_at < NOW() - sqlc.arg('timeout')::interval;
