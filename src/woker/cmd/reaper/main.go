@@ -1,5 +1,3 @@
-// woker/cmd/reaper/main.go
-
 package main
 
 import (
@@ -14,7 +12,6 @@ import (
 )
 
 const (
-	// DELETED: These constants are no longer needed here or are in config
 	pendingCounterName = "pending_urls_count"
 )
 
@@ -39,8 +36,7 @@ func main() {
 	}
 	defer storage.Close()
 
-	// Use separate tickers for each distinct task for clarity and future flexibility.
-	mainTicker := time.NewTicker(20 * time.Second) // Ticker for frequent tasks
+	mainTicker := time.NewTicker(20 * time.Second)
 	defer mainTicker.Stop()
 
 	netlocCacheTicker := time.NewTicker(cfg.NetlocCountRefreshInterval)
@@ -49,23 +45,38 @@ func main() {
 	stalledJobTicker := time.NewTicker(15 * time.Minute)
 	defer stalledJobTicker.Stop()
 
-	// NEW: Ticker for the less frequent orphan cleanup task.
 	orphanCheckTicker := time.NewTicker(30 * time.Minute)
 	defer orphanCheckTicker.Stop()
 
+	stalledClassifyTicker := time.NewTicker(5 * time.Minute)
+	defer stalledClassifyTicker.Stop()
+
 	slog.Info("Reaper tasks scheduled",
 		"pending_count_refresh", "20s",
-		"netloc_count_refresh", cfg.NetlocCountRefreshInterval,
-		"stalled_job_reset", "15m",
+		"netloc_count_refresh", cfg.NetlocCountRefreshInterval.String(),
+		"stalled_crawl_reset", "15m",
 		"orphan_job_check", "30m",
+		"stalled_classify_reset", "5m",
 	)
 
-	// Run tasks once on startup
 	go func() {
-		storage.RefreshPendingURLCount(ctx, pendingCounterName)
-		storage.RefreshNetlocCounts(ctx)
-		storage.ResetStalledJobs(ctx)
-		storage.ResetOrphanedJobs(ctx) // Run orphan check on startup too
+		slog.Info("Performing initial startup maintenance run...")
+		if err := storage.RefreshPendingURLCount(ctx, pendingCounterName); err != nil {
+			slog.Error("Startup: Failed to refresh pending URL count", "error", err)
+		}
+		if err := storage.RefreshNetlocCounts(ctx); err != nil {
+			slog.Error("Startup: Failed to refresh netloc counts cache", "error", err)
+		}
+		if err := storage.ResetStalledJobs(ctx); err != nil {
+			slog.Error("Startup: Failed to reset stalled jobs", "error", err)
+		}
+		if err := storage.ResetOrphanedJobs(ctx); err != nil {
+			slog.Error("Startup: Failed to reset orphaned jobs", "error", err)
+		}
+		if err := storage.ResetStalledClassificationJobs(ctx, "5m"); err != nil {
+			slog.Error("Startup: Failed to reset stalled classification jobs", "error", err)
+		}
+		slog.Info("Initial startup maintenance run complete.")
 	}()
 
 	for {
@@ -73,28 +84,34 @@ func main() {
 		case <-ctx.Done():
 			slog.Info("Shutdown signal received. Exiting...")
 			return
+
 		case <-mainTicker.C:
-			// Task 1: Refresh the pending URL count (every 20s)
 			if err := storage.RefreshPendingURLCount(ctx, pendingCounterName); err != nil {
 				slog.Error("Failed to refresh pending URL count", "error", err)
 			}
+
 		case <-netlocCacheTicker.C:
-			// Task 2: Refresh the netloc counts cache
 			slog.Info("Refreshing netloc counts cache")
 			if err := storage.RefreshNetlocCounts(ctx); err != nil {
 				slog.Error("Failed to refresh netloc counts cache", "error", err)
 			}
+
 		case <-stalledJobTicker.C:
-			// Task 3: Reset stalled jobs
-			slog.Info("Resetting stalled jobs")
+			slog.Info("Resetting stalled crawl/classify jobs in 'urls' table")
 			if err := storage.ResetStalledJobs(ctx); err != nil {
 				slog.Error("Failed to reset stalled jobs", "error", err)
 			}
-		case <-orphanCheckTicker.C: // NEW
-			// Task 4: Reset orphaned completed jobs
+
+		case <-orphanCheckTicker.C:
 			slog.Info("Checking for orphaned completed jobs")
 			if err := storage.ResetOrphanedJobs(ctx); err != nil {
 				slog.Error("Failed to reset orphaned jobs", "error", err)
+			}
+
+		case <-stalledClassifyTicker.C:
+			slog.Info("Resetting stalled classification jobs in 'classification_queue' table")
+			if err := storage.ResetStalledClassificationJobs(ctx, "5m"); err != nil {
+				slog.Error("Failed to reset stalled classification jobs", "error", err)
 			}
 		}
 	}

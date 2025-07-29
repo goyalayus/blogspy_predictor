@@ -2,13 +2,10 @@
 package worker
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
-	"net/http"
 	"net/url"
 	"strings"
 	"worker/packages/config"
@@ -17,22 +14,21 @@ import (
 	"worker/packages/domain"
 	"worker/packages/generated"
 
+	"github.com/jackc/pgx/v5"
 	"golang.org/x/sync/errgroup"
 )
 
 type Worker struct {
-	cfg        config.Config
-	storage    *db.Storage
-	crawler    *crawler.Crawler
-	httpClient *http.Client
+	cfg     config.Config
+	storage *db.Storage
+	crawler *crawler.Crawler
 }
 
 func New(cfg config.Config, storage *db.Storage, crawler *crawler.Crawler) *Worker {
 	return &Worker{
-		cfg:        cfg,
-		storage:    storage,
-		crawler:    crawler,
-		httpClient: &http.Client{},
+		cfg:     cfg,
+		storage: storage,
+		crawler: crawler,
 	}
 }
 
@@ -60,18 +56,15 @@ func (w *Worker) ProcessJobs(ctx context.Context, jobType string, fromStatus, to
 				URL: currentJob.Url,
 			}
 			var err error
-			// The logic is now combined, as both tasks do the same initial fetch.
 			if jobType == "classification" {
 				err = w.processClassificationTask(gCtx, domainJob)
 			} else {
 				err = w.processCrawlTask(gCtx, domainJob)
 			}
 			if err != nil {
-				// Errors from the task itself (e.g. context canceled) are logged here.
-				// Business logic errors (e.g. fetch failed) are handled inside the task by enqueuing a failed status.
 				slog.Error("Task processing failed unexpectedly", "job_id", currentJob.ID, "url", currentJob.Url, "error", err)
 			}
-			return nil // Always return nil to not cancel the whole group
+			return nil
 		})
 	}
 	_ = g.Wait()
@@ -85,59 +78,58 @@ func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRe
 		return nil
 	}
 	if content.IsNonHTML {
-		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, ErrorMsg: "Content-Type was not HTML"})
+		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{
+			ID:       job.ID,
+			Status:   domain.Irrelevant,
+			ErrorMsg: "Content-Type was not HTML",
+		})
 		return nil
 	}
 	if content.IsCSR {
-		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, Rendering: domain.CSR, ErrorMsg: "Detected Client-Side Rendering"})
-		return nil
-	}
-
-	reqBody := domain.PredictionRequest{URL: content.FinalURL, HTMLContent: content.HTMLContent, TextContent: content.TextContent}
-	jsonBody, _ := json.Marshal(reqBody)
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", w.cfg.MLApiURL+"/predict", bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return fmt.Errorf("failed to create prediction request: %w", err) // This is a programmer error
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := w.httpClient.Do(httpReq)
-	if err != nil {
-		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: "Prediction API call failed: " + err.Error()})
-		return nil
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		errMsg := fmt.Sprintf("Prediction API returned non-200 status: %d - %s", resp.StatusCode, string(bodyBytes))
-		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: errMsg})
-		return nil
-	}
-
-	var predResp domain.PredictionResponse
-	if err := json.NewDecoder(resp.Body).Decode(&predResp); err != nil {
-		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: "Failed to decode prediction response: " + err.Error()})
-		return nil
-	}
-
-	// If it's a blog, we crawl it and mark as completed.
-	if predResp.IsPersonalBlog {
-		// Perform the read-heavy part of crawl logic here, before handing off to the pure filter function.
-		if err := w.handleCrawlLogic(ctx, job, content); err != nil {
-			slog.Error("Crawl logic failed, but enqueuing as complete anyway", "job_id", job.ID, "error", err)
-		}
-		w.storage.EnqueueContentInsert(domain.ContentInsertResult{
-			ID:          job.ID,
-			Title:       content.Title,
-			Description: content.Description,
-			TextContent: content.TextContent,
-			Rendering:   domain.SSR,
+		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{
+			ID:        job.ID,
+			Status:    domain.Irrelevant,
+			Rendering: domain.CSR,
+			ErrorMsg:  "Detected Client-Side Rendering",
 		})
-	} else {
-		// If not a blog, it's irrelevant. We still "complete" it by inserting content.
-		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant})
+		return nil
 	}
+
+	payload := map[string]any{
+		"url":          content.FinalURL,
+		"html_content": content.HTMLContent,
+		"text_content": content.TextContent,
+	}
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		slog.Error("Failed to marshal classification payload to JSON", "job_id", job.ID, "error", err)
+		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{
+			ID:       job.ID,
+			Status:   domain.Failed,
+			ErrorMsg: "JSON marshaling failed",
+		})
+		return nil
+	}
+
+	err = w.storage.WithTransaction(ctx, func(qtx *generated.Queries, tx pgx.Tx) error {
+		updateSQL := "UPDATE urls SET status = $1, processed_at = NOW() WHERE id = $2"
+		if _, err := tx.Exec(ctx, updateSQL, generated.CrawlStatusClassifying, job.ID); err != nil {
+			return err
+		}
+
+		_, err := qtx.EnqueueClassificationJob(ctx, generated.EnqueueClassificationJobParams{
+			UrlID:   job.ID,
+			Payload: jsonPayload,
+		})
+		return err
+	})
+
+	if err != nil {
+		slog.Error("Failed to enqueue classification job transaction", "job_id", job.ID, "error", err)
+		return err
+	}
+
+	slog.Info("Successfully enqueued classification job", "job_id", job.ID, "url", job.URL)
 	return nil
 }
 
@@ -149,12 +141,10 @@ func (w *Worker) processCrawlTask(ctx context.Context, job domain.URLRecord) err
 	}
 
 	if content.IsNonHTML {
-		// We still mark it as completed, but with an error note. No new links are generated.
 		w.storage.EnqueueContentInsert(domain.ContentInsertResult{ID: job.ID, Rendering: domain.SSR})
 		return nil
 	}
 	if content.IsCSR {
-		// Mark as completed, but note the CSR rendering. No new links.
 		w.storage.EnqueueContentInsert(domain.ContentInsertResult{ID: job.ID, Rendering: domain.CSR})
 		return nil
 	}
@@ -172,7 +162,6 @@ func (w *Worker) processCrawlTask(ctx context.Context, job domain.URLRecord) err
 	return nil
 }
 
-// handleCrawlLogic is a new helper that performs the READ parts of crawling and then calls the pure filter function.
 func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, content *domain.FetchedContent) error {
 	newLinksRaw := w.crawler.ExtractLinks(content.GoqueryDoc, content.FinalURL, w.cfg.IgnoreExtensions)
 	if len(newLinksRaw) == 0 {
@@ -198,7 +187,6 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 		return nil
 	}
 
-	// Perform all DB reads here in the worker, not in a transaction.
 	netlocCountsRows, err := w.storage.Queries.GetNetlocCounts(ctx, allNetlocsFound)
 	if err != nil {
 		return fmt.Errorf("crawl-logic: failed to get netloc counts: %w", err)
@@ -226,7 +214,6 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 		domainDecisions[row.Netloc] = row.Status
 	}
 
-	// Now call the pure filtering logic with all the data it needs.
 	linksToQueue := w.filterAndPrepareLinks(job, linksByNetloc, netlocCounts, existingURLs, domainDecisions)
 
 	if len(linksToQueue) > 0 {
@@ -235,9 +222,6 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 	return nil
 }
 
-// filterAndPrepareLinks is the refactored, pure-function version of the old crawl logic.
-// It takes data and returns a list of links to be queued, performing no I/O itself.
-// MODIFIED: Corrected the syntax of the last parameter.
 func (w *Worker) filterAndPrepareLinks(
 	job domain.URLRecord,
 	linksByNetloc map[string][]string,

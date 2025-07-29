@@ -1,5 +1,4 @@
-// woker/packages/db/db.go
-
+// Package db
 package db
 
 import (
@@ -59,7 +58,6 @@ func New(ctx context.Context, cfg config.Config) (*Storage, error) {
 	return s, nil
 }
 
-// ... (Close, WithTransaction, Enqueue methods are unchanged) ...
 func (s *Storage) Close() {
 	if s.linkQueue != nil {
 		close(s.linkQueue)
@@ -120,8 +118,6 @@ func (s *Storage) EnqueueContentInsert(result domain.ContentInsertResult) {
 	}
 }
 
-// --- Reaper and Throttling Methods ---
-
 func (s *Storage) ResetStalledJobs(ctx context.Context) error {
 	interval := pgtype.Interval{
 		Microseconds: s.cfg.JobTimeout.Microseconds(),
@@ -130,7 +126,6 @@ func (s *Storage) ResetStalledJobs(ctx context.Context) error {
 	return s.Queries.ResetStalledJobs(ctx, interval)
 }
 
-// NEW: Method for the Reaper to re-queue completed jobs with missing content.
 func (s *Storage) ResetOrphanedJobs(ctx context.Context) error {
 	rowsAffected, err := s.Queries.ResetOrphanedCompletedJobs(ctx)
 	if err != nil {
@@ -209,9 +204,11 @@ func (s *Storage) processStatusUpdates(ctx context.Context, batch []domain.Statu
 	}
 
 	var statusSQL, errorMsgSQL, renderingSQL strings.Builder
-	var args []interface{}
+	var args []any
 	var ids []int64
 	paramIdx := 1
+
+	hasRenderingUpdate := false
 
 	statusSQL.WriteString("CASE id ")
 	errorMsgSQL.WriteString("CASE id ")
@@ -220,7 +217,7 @@ func (s *Storage) processStatusUpdates(ctx context.Context, batch []domain.Statu
 	for _, item := range batch {
 		ids = append(ids, item.ID)
 
-		statusSQL.WriteString(fmt.Sprintf("WHEN $%d THEN $%d ", paramIdx, paramIdx+1))
+		statusSQL.WriteString(fmt.Sprintf("WHEN $%d THEN $%d::crawl_status ", paramIdx, paramIdx+1))
 		args = append(args, item.ID, item.Status)
 		paramIdx += 2
 
@@ -229,7 +226,8 @@ func (s *Storage) processStatusUpdates(ctx context.Context, batch []domain.Statu
 		paramIdx += 2
 
 		if item.Rendering != "" {
-			renderingSQL.WriteString(fmt.Sprintf("WHEN $%d THEN $%d ", paramIdx, paramIdx+1))
+			hasRenderingUpdate = true
+			renderingSQL.WriteString(fmt.Sprintf("WHEN $%d THEN $%d::rendering_type ", paramIdx, paramIdx+1))
 			args = append(args, item.ID, item.Rendering)
 			paramIdx += 2
 		}
@@ -240,10 +238,17 @@ func (s *Storage) processStatusUpdates(ctx context.Context, batch []domain.Statu
 
 	statusSQL.WriteString("END")
 	errorMsgSQL.WriteString("END")
-	renderingSQL.WriteString("ELSE rendering END")
 
-	sql := fmt.Sprintf(`UPDATE urls SET status = %s, error_message = %s, rendering = %s, processed_at = NOW() WHERE id = ANY(%s)`,
-		statusSQL.String(), errorMsgSQL.String(), renderingSQL.String(), idsParam)
+	var sql string
+
+	if hasRenderingUpdate {
+		renderingSQL.WriteString("ELSE rendering END")
+		sql = fmt.Sprintf(`UPDATE urls SET status = %s, error_message = %s, rendering = %s, processed_at = NOW() WHERE id = ANY(%s)`,
+			statusSQL.String(), errorMsgSQL.String(), renderingSQL.String(), idsParam)
+	} else {
+		sql = fmt.Sprintf(`UPDATE urls SET status = %s, error_message = %s, processed_at = NOW() WHERE id = ANY(%s)`,
+			statusSQL.String(), errorMsgSQL.String(), idsParam)
+	}
 
 	_, err := s.DB.Exec(ctx, sql, args...)
 	if err != nil {
@@ -304,9 +309,9 @@ func (s *Storage) processContentInserts(ctx context.Context, batch []domain.Cont
 			return fmt.Errorf("failed to batch update urls to completed: %w", err)
 		}
 
-		rows := make([][]interface{}, len(batch))
+		rows := make([][]any, len(batch))
 		for i, item := range batch {
-			rows[i] = []interface{}{
+			rows[i] = []any{
 				item.ID,
 				pgtype.Text{String: item.Title, Valid: item.Title != ""},
 				pgtype.Text{String: item.Description, Valid: item.Description != ""},
@@ -414,7 +419,7 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 
 		if len(newURLsToInsert) > 0 {
 			sql := "INSERT INTO urls (url, netloc, status) VALUES "
-			var args []interface{}
+			var args []any
 			paramIdx := 1
 			for i, link := range newURLsToInsert {
 				if i > 0 {
@@ -499,4 +504,16 @@ func (s *Storage) LockJobs(ctx context.Context, fromStatus, toStatus generated.C
 	}
 
 	return jobs, nil
+}
+
+func (s *Storage) ResetStalledClassificationJobs(ctx context.Context, timeout string) error {
+	d, err := time.ParseDuration(timeout)
+	if err != nil {
+		return err
+	}
+	interval := pgtype.Interval{
+		Microseconds: d.Microseconds(),
+		Valid:        true,
+	}
+	return s.Queries.ResetStalledClassificationJobs(ctx, interval)
 }
