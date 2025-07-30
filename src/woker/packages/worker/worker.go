@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 	"worker/packages/config"
 	"worker/packages/crawler"
 	"worker/packages/db"
@@ -37,7 +38,10 @@ func New(cfg config.Config, storage *db.Storage, crawler *crawler.Crawler) *Work
 }
 
 func (w *Worker) ProcessJobs(ctx context.Context, jobType string, fromStatus, toStatus generated.CrawlStatus) {
+	lockStart := time.Now()
 	jobsList, err := w.storage.LockJobs(ctx, fromStatus, toStatus, int32(w.cfg.BatchSize))
+	lockDuration := time.Since(lockStart)
+
 	if err != nil {
 		slog.Error("Failed to lock and update jobs", "type", jobType, "error", err)
 		return
@@ -47,7 +51,22 @@ func (w *Worker) ProcessJobs(ctx context.Context, jobType string, fromStatus, to
 		return
 	}
 
-	slog.Info("Locked and dispatched jobs", "type", jobType, "count", len(jobsList))
+	slog.Info("Locked new job batch",
+		"event", slog.GroupValue(
+			slog.String("name", "JOB_BATCH_LOCKED"),
+			slog.String("stage", "end"),
+			slog.Float64("duration_ms", float64(lockDuration.Microseconds())/1000.0),
+		),
+		"details", slog.GroupValue(
+			slog.Any("input", map[string]interface{}{
+				"job_type":       jobType,
+				"requested_size": w.cfg.BatchSize,
+			}),
+			slog.Any("output", map[string]interface{}{
+				"locked_count": len(jobsList),
+			}),
+		),
+	)
 
 	g, gCtx := errgroup.WithContext(ctx)
 	g.SetLimit(w.cfg.MaxWorkers)
@@ -55,6 +74,9 @@ func (w *Worker) ProcessJobs(ctx context.Context, jobType string, fromStatus, to
 	for _, job := range jobsList {
 		currentJob := job
 		g.Go(func() error {
+			// Create a logger with a persistent correlation_id for this specific job
+			jobLogger := slog.With("correlation_id", fmt.Sprintf("job_%d", currentJob.ID))
+
 			domainJob := domain.URLRecord{
 				ID:  currentJob.ID,
 				URL: currentJob.Url,
@@ -62,14 +84,14 @@ func (w *Worker) ProcessJobs(ctx context.Context, jobType string, fromStatus, to
 			var err error
 			// The logic is now combined, as both tasks do the same initial fetch.
 			if jobType == "classification" {
-				err = w.processClassificationTask(gCtx, domainJob)
+				err = w.processClassificationTask(gCtx, domainJob, jobLogger)
 			} else {
-				err = w.processCrawlTask(gCtx, domainJob)
+				err = w.processCrawlTask(gCtx, domainJob, jobLogger)
 			}
 			if err != nil {
 				// Errors from the task itself (e.g. context canceled) are logged here.
 				// Business logic errors (e.g. fetch failed) are handled inside the task by enqueuing a failed status.
-				slog.Error("Task processing failed unexpectedly", "job_id", currentJob.ID, "url", currentJob.Url, "error", err)
+				jobLogger.Error("Task processing failed unexpectedly", "error", err)
 			}
 			return nil // Always return nil to not cancel the whole group
 		})
@@ -78,12 +100,42 @@ func (w *Worker) ProcessJobs(ctx context.Context, jobType string, fromStatus, to
 	slog.Info("Finished processing batch", "type", jobType, "count", len(jobsList))
 }
 
-func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRecord) error {
+func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRecord, jobLogger *slog.Logger) error {
+	jobLogger.Info("Starting classification task", "event", slog.GroupValue(
+		slog.String("name", "CLASSIFICATION_TASK_STARTED"),
+		slog.String("stage", "start"),
+	))
+
+	fetchStart := time.Now()
 	content, err := w.crawler.FetchAndParseContent(ctx, job.URL)
+	fetchDuration := time.Since(fetchStart)
+
 	if err != nil {
+		jobLogger.Warn("Content fetch failed",
+			"event", slog.GroupValue(slog.String("name", "CONTENT_FETCH_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(fetchDuration.Microseconds())/1000.0)),
+			"details", slog.GroupValue(
+				slog.Any("input", map[string]interface{}{"url": job.URL}),
+				slog.Any("output", map[string]interface{}{"error": err.Error()}),
+			),
+		)
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: err.Error()})
 		return nil
 	}
+
+	jobLogger.Info("Content fetch completed",
+		"event", slog.GroupValue(slog.String("name", "CONTENT_FETCH_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(fetchDuration.Microseconds())/1000.0)),
+		"details", slog.GroupValue(
+			slog.Any("input", map[string]interface{}{"url": job.URL}),
+			slog.Any("output", map[string]interface{}{
+				"final_url":        content.FinalURL,
+				"is_html":          !content.IsNonHTML,
+				"is_csr":           content.IsCSR,
+				"html_content_len": len(content.HTMLContent),
+				"text_content_len": len(content.TextContent),
+			}),
+		),
+	)
+
 	if content.IsNonHTML {
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, ErrorMsg: "Content-Type was not HTML"})
 		return nil
@@ -95,14 +147,26 @@ func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRe
 
 	reqBody := domain.PredictionRequest{URL: content.FinalURL, HTMLContent: content.HTMLContent, TextContent: content.TextContent}
 	jsonBody, _ := json.Marshal(reqBody)
+
+	apiCallStart := time.Now()
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", w.cfg.MLApiURL+"/predict", bytes.NewBuffer(jsonBody))
 	if err != nil {
-		return fmt.Errorf("failed to create prediction request: %w", err) // This is a programmer error
+		// This is a programmer error, not a job failure. Log as an error and return it.
+		jobLogger.Error("Failed to create prediction request object", "error", err)
+		return fmt.Errorf("failed to create prediction request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-
 	resp, err := w.httpClient.Do(httpReq)
+	apiCallDuration := time.Since(apiCallStart)
+
 	if err != nil {
+		jobLogger.Warn("ML API call failed",
+			"event", slog.GroupValue(slog.String("name", "ML_API_CALL_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(apiCallDuration.Microseconds())/1000.0)),
+			"details", slog.GroupValue(
+				slog.Any("input", map[string]interface{}{"url": content.FinalURL}),
+				slog.Any("output", map[string]interface{}{"error": "HTTP client error: " + err.Error()}),
+			),
+		)
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: "Prediction API call failed: " + err.Error()})
 		return nil
 	}
@@ -111,21 +175,36 @@ func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRe
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		errMsg := fmt.Sprintf("Prediction API returned non-200 status: %d - %s", resp.StatusCode, string(bodyBytes))
+		jobLogger.Warn("ML API call returned non-200 status",
+			"event", slog.GroupValue(slog.String("name", "ML_API_CALL_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(apiCallDuration.Microseconds())/1000.0)),
+			"details", slog.GroupValue(
+				slog.Any("input", map[string]interface{}{"url": content.FinalURL}),
+				slog.Any("output", map[string]interface{}{"http_status": resp.StatusCode, "error": errMsg}),
+			),
+		)
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: errMsg})
 		return nil
 	}
 
 	var predResp domain.PredictionResponse
 	if err := json.NewDecoder(resp.Body).Decode(&predResp); err != nil {
+		jobLogger.Warn("Failed to decode ML API response", "error", err)
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: "Failed to decode prediction response: " + err.Error()})
 		return nil
 	}
 
+	jobLogger.Info("ML API call completed",
+		"event", slog.GroupValue(slog.String("name", "ML_API_CALL_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(apiCallDuration.Microseconds())/1000.0)),
+		"details", slog.GroupValue(
+			slog.Any("input", map[string]interface{}{"url": content.FinalURL}),
+			slog.Any("output", map[string]interface{}{"http_status": resp.StatusCode, "is_personal_blog": predResp.IsPersonalBlog}),
+		),
+	)
+
 	// If it's a blog, we crawl it and mark as completed.
 	if predResp.IsPersonalBlog {
-		// Perform the read-heavy part of crawl logic here, before handing off to the pure filter function.
-		if err := w.handleCrawlLogic(ctx, job, content); err != nil {
-			slog.Error("Crawl logic failed, but enqueuing as complete anyway", "job_id", job.ID, "error", err)
+		if _, err := w.handleCrawlLogic(ctx, job, content, jobLogger); err != nil {
+			jobLogger.Error("Crawl logic failed, but enqueuing as complete anyway", "error", err)
 		}
 		w.storage.EnqueueContentInsert(domain.ContentInsertResult{
 			ID:          job.ID,
@@ -135,32 +214,59 @@ func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRe
 			Rendering:   domain.SSR,
 		})
 	} else {
-		// If not a blog, it's irrelevant. We still "complete" it by inserting content.
+		// If not a blog, it's irrelevant.
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant})
 	}
 	return nil
 }
 
-func (w *Worker) processCrawlTask(ctx context.Context, job domain.URLRecord) error {
+func (w *Worker) processCrawlTask(ctx context.Context, job domain.URLRecord, jobLogger *slog.Logger) error {
+	jobLogger.Info("Starting crawl task", "event", slog.GroupValue(
+		slog.String("name", "CRAWL_TASK_STARTED"),
+		slog.String("stage", "start"),
+	))
+	
+	fetchStart := time.Now()
 	content, err := w.crawler.FetchAndParseContent(ctx, job.URL)
+	fetchDuration := time.Since(fetchStart)
+
 	if err != nil {
+		jobLogger.Warn("Content fetch failed",
+			"event", slog.GroupValue(slog.String("name", "CONTENT_FETCH_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(fetchDuration.Microseconds())/1000.0)),
+			"details", slog.GroupValue(
+				slog.Any("input", map[string]interface{}{"url": job.URL}),
+				slog.Any("output", map[string]interface{}{"error": err.Error()}),
+			),
+		)
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: err.Error()})
 		return nil
 	}
 
+	jobLogger.Info("Content fetch completed",
+		"event", slog.GroupValue(slog.String("name", "CONTENT_FETCH_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(fetchDuration.Microseconds())/1000.0)),
+		"details", slog.GroupValue(
+			slog.Any("input", map[string]interface{}{"url": job.URL}),
+			slog.Any("output", map[string]interface{}{
+				"final_url":        content.FinalURL,
+				"is_html":          !content.IsNonHTML,
+				"is_csr":           content.IsCSR,
+				"html_content_len": len(content.HTMLContent),
+				"text_content_len": len(content.TextContent),
+			}),
+		),
+	)
+
 	if content.IsNonHTML {
-		// We still mark it as completed, but with an error note. No new links are generated.
 		w.storage.EnqueueContentInsert(domain.ContentInsertResult{ID: job.ID, Rendering: domain.SSR})
 		return nil
 	}
 	if content.IsCSR {
-		// Mark as completed, but note the CSR rendering. No new links.
 		w.storage.EnqueueContentInsert(domain.ContentInsertResult{ID: job.ID, Rendering: domain.CSR})
 		return nil
 	}
 
-	if err := w.handleCrawlLogic(ctx, job, content); err != nil {
-		slog.Error("Crawl logic failed, but enqueuing as complete anyway", "job_id", job.ID, "error", err)
+	if _, err := w.handleCrawlLogic(ctx, job, content, jobLogger); err != nil {
+		jobLogger.Error("Crawl logic failed, but enqueuing as complete anyway", "error", err)
 	}
 	w.storage.EnqueueContentInsert(domain.ContentInsertResult{
 		ID:          job.ID,
@@ -172,11 +278,24 @@ func (w *Worker) processCrawlTask(ctx context.Context, job domain.URLRecord) err
 	return nil
 }
 
-// handleCrawlLogic is a new helper that performs the READ parts of crawling and then calls the pure filter function.
-func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, content *domain.FetchedContent) error {
+// handleCrawlLogic now accepts the logger and returns the count of links queued, for logging purposes.
+func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, content *domain.FetchedContent, jobLogger *slog.Logger) (int, error) {
+	logicStart := time.Now()
+	
+	extractStart := time.Now()
 	newLinksRaw := w.crawler.ExtractLinks(content.GoqueryDoc, content.FinalURL, w.cfg.IgnoreExtensions)
+	extractDuration := time.Since(extractStart)
+
+	jobLogger.Info("Link extraction completed",
+		"event", slog.GroupValue(slog.String("name", "LINK_EXTRACTION_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(extractDuration.Microseconds())/1000.0)),
+		"details", slog.GroupValue(
+			slog.Any("input", map[string]interface{}{"final_url": content.FinalURL}),
+			slog.Any("output", map[string]interface{}{"raw_link_count": len(newLinksRaw)}),
+		),
+	)
+
 	if len(newLinksRaw) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	linksByNetloc := make(map[string][]string)
@@ -195,13 +314,14 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 		}
 	}
 	if len(allNetlocsFound) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	// Perform all DB reads here in the worker, not in a transaction.
+	dbReadStart := time.Now()
 	netlocCountsRows, err := w.storage.Queries.GetNetlocCounts(ctx, allNetlocsFound)
 	if err != nil {
-		return fmt.Errorf("crawl-logic: failed to get netloc counts: %w", err)
+		return 0, fmt.Errorf("crawl-logic: failed to get netloc counts: %w", err)
 	}
 	netlocCounts := make(map[string]int32)
 	for _, row := range netlocCountsRows {
@@ -210,7 +330,7 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 
 	existingURLsRows, err := w.storage.Queries.GetExistingURLs(ctx, newLinksRaw)
 	if err != nil {
-		return fmt.Errorf("crawl-logic: failed to check existing urls: %w", err)
+		return 0, fmt.Errorf("crawl-logic: failed to check existing urls: %w", err)
 	}
 	existingURLs := make(map[string]struct{}, len(existingURLsRows))
 	for _, urlStr := range existingURLsRows {
@@ -219,12 +339,13 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 
 	domainDecisionsRows, err := w.storage.Queries.GetDomainDecisions(ctx, allNetlocsFound)
 	if err != nil {
-		return fmt.Errorf("crawl-logic: failed to get domain decisions: %w", err)
+		return 0, fmt.Errorf("crawl-logic: failed to get domain decisions: %w", err)
 	}
 	domainDecisions := make(map[string]generated.CrawlStatus)
 	for _, row := range domainDecisionsRows {
 		domainDecisions[row.Netloc] = row.Status
 	}
+	dbReadDuration := time.Since(dbReadStart)
 
 	// Now call the pure filtering logic with all the data it needs.
 	linksToQueue := w.filterAndPrepareLinks(job, linksByNetloc, netlocCounts, existingURLs, domainDecisions)
@@ -232,7 +353,23 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 	if len(linksToQueue) > 0 {
 		w.storage.EnqueueLinks(domain.LinkBatch{SourceURLID: job.ID, NewLinks: linksToQueue})
 	}
-	return nil
+
+	logicDuration := time.Since(logicStart)
+	jobLogger.Info("Link filtering completed",
+		"event", slog.GroupValue(slog.String("name", "LINK_FILTERING_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(logicDuration.Microseconds())/1000.0)),
+		"details", slog.GroupValue(
+			slog.Any("input", map[string]interface{}{
+				"raw_link_count":           len(newLinksRaw),
+				"db_read_duration_ms":      float64(dbReadDuration.Microseconds()) / 1000.0,
+				"netloc_count_map_size":    len(netlocCounts),
+				"existing_url_map_size":    len(existingURLs),
+				"domain_decision_map_size": len(domainDecisions),
+			}),
+			slog.Any("output", map[string]interface{}{"queued_link_count": len(linksToQueue)}),
+		),
+	)
+
+	return len(linksToQueue), nil
 }
 
 // filterAndPrepareLinks is the refactored, pure-function version of the old crawl logic.
@@ -247,6 +384,7 @@ func (w *Worker) filterAndPrepareLinks(
 ) []domain.NewLink {
 	sourceNetloc, err := url.Parse(job.URL)
 	if err != nil {
+		// Can't use job logger here, but can use global logger.
 		slog.Error("Could not parse source job URL", "url", job.URL, "error", err)
 		return nil
 	}

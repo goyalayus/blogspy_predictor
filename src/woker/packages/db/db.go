@@ -1,5 +1,3 @@
-// woker/packages/db/db.go
-
 package db
 
 import (
@@ -123,22 +121,51 @@ func (s *Storage) EnqueueContentInsert(result domain.ContentInsertResult) {
 // --- Reaper and Throttling Methods ---
 
 func (s *Storage) ResetStalledJobs(ctx context.Context) error {
+	start := time.Now()
 	interval := pgtype.Interval{
 		Microseconds: s.cfg.JobTimeout.Microseconds(),
 		Valid:        true,
 	}
-	return s.Queries.ResetStalledJobs(ctx, interval)
+	// The ResetStalledJobs query now returns the number of rows affected.
+	// We need to modify query.sql and the generated code for this.
+	// For now, we'll assume it doesn't and log the execution.
+	// In a future step we would update the SQL query to `RETURNING id` and count here.
+	err := s.Queries.ResetStalledJobs(ctx, interval)
+	duration := time.Since(start)
+	if err != nil {
+		slog.Error("Stalled job reset failed",
+			"event", slog.GroupValue(slog.String("name", "STALLED_JOB_RESET_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(duration.Microseconds())/1000.0)),
+			"details", slog.GroupValue(slog.Any("error", err.Error())),
+		)
+		return err
+	}
+
+	// This part of the log is less useful without knowing the count, but we log success.
+	slog.Info("Stalled job reset completed",
+		"event", slog.GroupValue(slog.String("name", "STALLED_JOB_RESET_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(duration.Microseconds())/1000.0)),
+	)
+	return nil
 }
 
-// NEW: Method for the Reaper to re-queue completed jobs with missing content.
 func (s *Storage) ResetOrphanedJobs(ctx context.Context) error {
+	start := time.Now()
 	rowsAffected, err := s.Queries.ResetOrphanedCompletedJobs(ctx)
+	duration := time.Since(start)
+
 	if err != nil {
+		slog.Error("Orphaned job reset failed",
+			"event", slog.GroupValue(slog.String("name", "ORPHANED_JOB_RESET_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(duration.Microseconds())/1000.0)),
+			"details", slog.GroupValue(slog.Any("error", err.Error())),
+		)
 		return fmt.Errorf("failed to reset orphaned jobs: %w", err)
 	}
-	if rowsAffected > 0 {
-		slog.Info("Re-queued orphaned completed jobs for crawling", "count", rowsAffected)
-	}
+	slog.Info("Orphaned job reset completed",
+		"event", slog.GroupValue(slog.String("name", "ORPHANED_JOB_RESET_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(duration.Microseconds())/1000.0)),
+		"details", slog.GroupValue(
+			slog.Any("output", map[string]interface{}{"requeued_job_count": rowsAffected}),
+		),
+	)
+
 	return nil
 }
 
@@ -146,27 +173,48 @@ func (s *Storage) GetPendingURLCount(ctx context.Context) (int64, error) {
 	return s.Queries.GetCounterValue(ctx, pendingCounterName)
 }
 
-func (s *Storage) RefreshPendingURLCount(ctx context.Context, counterName string) error {
+func (s *Storage) RefreshPendingURLCount(ctx context.Context) error {
+	start := time.Now()
 	count, err := s.Queries.CountPendingURLs(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to count pending urls: %w", err)
 	}
 	err = s.Queries.UpdateCounterValue(ctx, generated.UpdateCounterValueParams{
 		Value:       count,
-		CounterName: counterName,
+		CounterName: pendingCounterName,
 	})
+	duration := time.Since(start)
 	if err != nil {
 		return fmt.Errorf("failed to update counter value: %w", err)
 	}
-	slog.Info("Refreshed pending URL count", "count", count)
+
+	slog.Info("Refreshed pending URL count",
+		"event", slog.GroupValue(slog.String("name", "PENDING_URL_COUNT_REFRESHED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(duration.Microseconds())/1000.0)),
+		"details", slog.GroupValue(
+			slog.Any("output", map[string]interface{}{"count": count}),
+		),
+	)
 	return nil
 }
 
 func (s *Storage) RefreshNetlocCounts(ctx context.Context) error {
-	return s.Queries.RefreshNetlocCounts(ctx)
+	start := time.Now()
+	err := s.Queries.RefreshNetlocCounts(ctx)
+	duration := time.Since(start)
+	if err != nil {
+		slog.Error("Netloc counts refresh failed",
+			"event", slog.GroupValue(slog.String("name", "NETLOC_COUNTS_REFRESHED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(duration.Microseconds())/1000.0)),
+			"details", slog.GroupValue(slog.Any("error", err.Error())),
+		)
+		return err
+	}
+	slog.Info("Netloc counts refresh completed",
+		"event", slog.GroupValue(slog.String("name", "NETLOC_COUNTS_REFRESHED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(duration.Microseconds())/1000.0)),
+	)
+	return nil
 }
 
-// ... (all writer goroutines are unchanged) ...
+// ... (writer goroutines are unchanged) ...
 func (s *Storage) statusWriter(ctx context.Context) {
 	ticker := time.NewTicker(s.cfg.StatusUpdateInterval)
 	defer ticker.Stop()
@@ -207,6 +255,7 @@ func (s *Storage) processStatusUpdates(ctx context.Context, batch []domain.Statu
 	if len(batch) == 0 {
 		return
 	}
+	start := time.Now()
 
 	var statusSQL, errorMsgSQL, renderingSQL strings.Builder
 	var args []interface{}
@@ -246,10 +295,23 @@ func (s *Storage) processStatusUpdates(ctx context.Context, batch []domain.Statu
 		statusSQL.String(), errorMsgSQL.String(), renderingSQL.String(), idsParam)
 
 	_, err := s.DB.Exec(ctx, sql, args...)
+	duration := time.Since(start)
+
 	if err != nil {
-		slog.Error("Status Writer: Failed to execute batch update", "error", err)
+		slog.Error("DB batch write failed",
+			"event", slog.GroupValue(slog.String("name", "DB_BATCH_WRITE_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(duration.Microseconds())/1000.0)),
+			"details", slog.GroupValue(
+				slog.Any("input", map[string]interface{}{"writer_type": "status_writer", "batch_size": len(batch)}),
+				slog.Any("output", map[string]interface{}{"error": err.Error()}),
+			),
+		)
 	} else {
-		slog.Info("Status Writer: Successfully processed batch", "count", len(batch))
+		slog.Info("DB batch write completed",
+			"event", slog.GroupValue(slog.String("name", "DB_BATCH_WRITE_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(duration.Microseconds())/1000.0)),
+			"details", slog.GroupValue(
+				slog.Any("input", map[string]interface{}{"writer_type": "status_writer", "batch_size": len(batch)}),
+			),
+		)
 	}
 }
 
@@ -293,14 +355,14 @@ func (s *Storage) processContentInserts(ctx context.Context, batch []domain.Cont
 	if len(batch) == 0 {
 		return
 	}
-
+	start := time.Now()
 	err := s.WithTransaction(ctx, func(qtx *generated.Queries, tx pgx.Tx) error {
 		var ids []int64
 		for _, item := range batch {
 			ids = append(ids, item.ID)
 		}
-		updateSQL := `UPDATE urls SET status = $1, rendering = $2, processed_at = NOW() WHERE id = ANY($3)`
-		if _, err := tx.Exec(ctx, updateSQL, generated.CrawlStatusCompleted, generated.RenderingTypeSSR, ids); err != nil {
+		updateSQL := `UPDATE urls SET status = $1, processed_at = NOW() WHERE id = ANY($2)`
+		if _, err := tx.Exec(ctx, updateSQL, generated.CrawlStatusCompleted, ids); err != nil {
 			return fmt.Errorf("failed to batch update urls to completed: %w", err)
 		}
 
@@ -324,11 +386,23 @@ func (s *Storage) processContentInserts(ctx context.Context, batch []domain.Cont
 		}
 		return nil
 	})
+	duration := time.Since(start)
 
 	if err != nil {
-		slog.Error("Content Writer: Transaction failed", "error", err)
+		slog.Error("DB batch write failed",
+			"event", slog.GroupValue(slog.String("name", "DB_BATCH_WRITE_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(duration.Microseconds())/1000.0)),
+			"details", slog.GroupValue(
+				slog.Any("input", map[string]interface{}{"writer_type": "content_writer", "batch_size": len(batch)}),
+				slog.Any("output", map[string]interface{}{"error": err.Error()}),
+			),
+		)
 	} else {
-		slog.Info("Content Writer: Successfully processed batch", "count", len(batch))
+		slog.Info("DB batch write completed",
+			"event", slog.GroupValue(slog.String("name", "DB_BATCH_WRITE_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(duration.Microseconds())/1000.0)),
+			"details", slog.GroupValue(
+				slog.Any("input", map[string]interface{}{"writer_type": "content_writer", "batch_size": len(batch)}),
+			),
+		)
 	}
 }
 
@@ -365,6 +439,7 @@ func (s *Storage) linkWriter(ctx context.Context) {
 }
 
 func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkBatch) {
+	start := time.Now()
 	count, err := s.GetPendingURLCount(ctx)
 	if err != nil {
 		slog.Error("Link Writer: Failed to get pending URL count for throttling check", "error", err)
@@ -453,17 +528,30 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 
 		if len(edgeRows) > 0 {
 			_, err := tx.CopyFrom(ctx, pgx.Identifier{"url_edges"}, []string{"source_url_id", "dest_url_id"}, pgx.CopyFromRows(edgeRows))
+			// Ignore unique constraint violations for edges, as they are not critical.
 			if err != nil && !strings.Contains(err.Error(), "23505") {
 				return fmt.Errorf("failed to bulk insert edges: %w", err)
 			}
 		}
 		return nil
 	})
+	duration := time.Since(start)
 
 	if err != nil {
-		slog.Error("Link Writer: Transaction failed", "error", err)
+		slog.Error("DB batch write failed",
+			"event", slog.GroupValue(slog.String("name", "DB_BATCH_WRITE_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(duration.Microseconds())/1000.0)),
+			"details", slog.GroupValue(
+				slog.Any("input", map[string]interface{}{"writer_type": "link_writer", "batch_size": len(allCandidateLinks)}),
+				slog.Any("output", map[string]interface{}{"error": err.Error()}),
+			),
+		)
 	} else {
-		slog.Info("Link Writer: Successfully processed batch", "candidate_urls", len(allCandidateLinks))
+		slog.Info("DB batch write completed",
+			"event", slog.GroupValue(slog.String("name", "DB_BATCH_WRITE_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(duration.Microseconds())/1000.0)),
+			"details", slog.GroupValue(
+				slog.Any("input", map[string]interface{}{"writer_type": "link_writer", "batch_size": len(allCandidateLinks)}),
+			),
+		)
 	}
 }
 

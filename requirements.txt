@@ -15,3 +15,4 @@ psycopg2-binary
 pydantic-settings
 validators
 plotext
+python-json-logger

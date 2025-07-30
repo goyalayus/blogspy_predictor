@@ -26,12 +26,15 @@ type Config struct {
 	AllowedPathPrefixes        []string
 	IgnoreExtensions           []string
 	// NEW: Configuration for the asynchronous writers
-	StatusUpdateBatchSize   int
-	StatusUpdateInterval    time.Duration
-	ContentInsertBatchSize  int
-	ContentInsertInterval   time.Duration
-	ContentInsertQueueSize  int
-	StatusUpdateQueueSize   int
+	StatusUpdateBatchSize  int
+	StatusUpdateInterval   time.Duration
+	ContentInsertBatchSize int
+	ContentInsertInterval  time.Duration
+	ContentInsertQueueSize int
+	StatusUpdateQueueSize  int
+	// NEW: Logging configuration
+	LogFile string
+	LogLevel string
 }
 
 func Load() (Config, error) {
@@ -62,7 +65,7 @@ func Load() (Config, error) {
 	cfg.JobTimeout, _ = time.ParseDuration(getEnv("JOB_TIMEOUT", "15m"))
 	cfg.FetchTimeout, _ = time.ParseDuration(getEnv("FETCH_TIMEOUT", "6s"))
 	cfg.MaxUrlsPerNetloc, _ = strconv.Atoi(getEnv("MAX_URLS_PER_NETLOC", "130"))
-	
+
 	// Legacy batching config, still used for link insertion
 	cfg.BatchWriteInterval, _ = time.ParseDuration(getEnv("BATCH_WRITE_INTERVAL", "10s"))
 	cfg.BatchWriteQueueSize, _ = strconv.Atoi(getEnv("BATCH_WRITE_QUEUE_SIZE", "1000"))
@@ -79,6 +82,11 @@ func Load() (Config, error) {
 	cfg.RestrictedTLDs = strings.Split(getEnv("RESTRICTED_TLDS", ".org,.edu"), ",")
 	cfg.AllowedPathPrefixes = strings.Split(getEnv("ALLOWED_PATH_PREFIXES", "/blog"), ",")
 	cfg.IgnoreExtensions = strings.Split(getEnv("IGNORE_EXTENSIONS", ".pdf,.jpg,.jpeg,.png,.gif,.zip,.rar,.exe,.mp3,.mp4,.avi,.mov,.dmg,.iso,.css,.js,.xml,.json,.gz,.tar,.tgz"), ",")
+
+	// NEW: Load logging configuration from environment
+	cfg.LogFile = getEnv("LOG_FILE", "logs/worker.log")
+	cfg.LogLevel = getEnv("LOG_LEVEL", "info")
+
 
 	return cfg, nil
 }
