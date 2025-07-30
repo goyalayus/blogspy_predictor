@@ -39,7 +39,10 @@ const getDomainDecisions = `-- name: GetDomainDecisions :many
 SELECT DISTINCT ON (netloc) netloc, status
 FROM urls
 WHERE netloc = ANY($1::text[])
-  AND status IN ('pending_crawl', 'crawling', 'completed', 'irrelevant')
+  AND status IN (
+    'pending_crawl', 'crawling', 'completed', 'irrelevant',
+    'pending_classification', 'classifying'
+)
 `
 
 type GetDomainDecisionsRow struct {

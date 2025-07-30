@@ -113,14 +113,15 @@ type SystemCounter struct {
 }
 
 type Url struct {
-	ID           int64
-	Url          string
-	Netloc       string
-	Status       CrawlStatus
-	Rendering    NullRenderingType
-	ErrorMessage pgtype.Text
-	LockedAt     pgtype.Timestamptz
-	ProcessedAt  pgtype.Timestamptz
+	ID            int64
+	Url           string
+	Netloc        string
+	Status        CrawlStatus
+	Rendering     NullRenderingType
+	ErrorMessage  pgtype.Text
+	LockedAt      pgtype.Timestamptz
+	ProcessedAt   pgtype.Timestamptz
+	PagerankScore pgtype.Float4
 }
 
 type UrlContent struct {

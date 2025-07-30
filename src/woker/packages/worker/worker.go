@@ -425,8 +425,13 @@ func (w *Worker) filterAndPrepareLinks(
 				linkStatus = domain.PendingCrawl
 			} else if decision, ok := domainDecisions[netloc]; ok {
 				if decision == generated.CrawlStatusIrrelevant {
-					linkStatus = domain.Irrelevant
+					// Rejection Path: This domain is known to be bad. IGNORE.
+					continue
+				} else if decision == generated.CrawlStatusPendingClassification || decision == generated.CrawlStatusClassifying {
+					// Ignore Path: A job for this domain is already in the pipeline. IGNORE.
+					continue
 				} else {
+					// Promotion Path: This domain is known to be good (completed, crawling, etc.). Promote to crawl.
 					linkStatus = domain.PendingCrawl
 				}
 			}

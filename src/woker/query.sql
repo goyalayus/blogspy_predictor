@@ -36,7 +36,10 @@ WHERE url = ANY(@urls::text[]);
 SELECT DISTINCT ON (netloc) netloc, status
 FROM urls
 WHERE netloc = ANY(@netlocs::text[])
-  AND status IN ('pending_crawl', 'crawling', 'completed', 'irrelevant');
+  AND status IN (
+    'pending_crawl', 'crawling', 'completed', 'irrelevant',
+    'pending_classification', 'classifying'
+);
 
 -- QUERIES FOR THE REAPER AND THROTTLING MECHANISM
 

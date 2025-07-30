@@ -261,6 +261,7 @@ func (s *Storage) processStatusUpdates(ctx context.Context, batch []domain.Statu
 	var args []interface{}
 	var ids []int64
 	paramIdx := 1
+	var renderingUpdatesExist bool
 
 	statusSQL.WriteString("CASE id ")
 	errorMsgSQL.WriteString("CASE id ")
@@ -269,7 +270,7 @@ func (s *Storage) processStatusUpdates(ctx context.Context, batch []domain.Statu
 	for _, item := range batch {
 		ids = append(ids, item.ID)
 
-		statusSQL.WriteString(fmt.Sprintf("WHEN $%d THEN $%d ", paramIdx, paramIdx+1))
+		statusSQL.WriteString(fmt.Sprintf("WHEN $%d THEN $%d::crawl_status ", paramIdx, paramIdx+1))
 		args = append(args, item.ID, item.Status)
 		paramIdx += 2
 
@@ -278,9 +279,10 @@ func (s *Storage) processStatusUpdates(ctx context.Context, batch []domain.Statu
 		paramIdx += 2
 
 		if item.Rendering != "" {
-			renderingSQL.WriteString(fmt.Sprintf("WHEN $%d THEN $%d ", paramIdx, paramIdx+1))
+			renderingSQL.WriteString(fmt.Sprintf("WHEN $%d THEN $%d::rendering_type ", paramIdx, paramIdx+1))
 			args = append(args, item.ID, item.Rendering)
 			paramIdx += 2
+			renderingUpdatesExist = true
 		}
 	}
 
@@ -289,10 +291,15 @@ func (s *Storage) processStatusUpdates(ctx context.Context, batch []domain.Statu
 
 	statusSQL.WriteString("END")
 	errorMsgSQL.WriteString("END")
-	renderingSQL.WriteString("ELSE rendering END")
 
-	sql := fmt.Sprintf(`UPDATE urls SET status = %s, error_message = %s, rendering = %s, processed_at = NOW() WHERE id = ANY(%s)`,
-		statusSQL.String(), errorMsgSQL.String(), renderingSQL.String(), idsParam)
+	var renderingUpdateSQL string
+	if renderingUpdatesExist {
+		renderingSQL.WriteString("ELSE rendering END")
+		renderingUpdateSQL = fmt.Sprintf(", rendering = %s", renderingSQL.String())
+	}
+
+	sql := fmt.Sprintf(`UPDATE urls SET status = %s, error_message = %s, processed_at = NOW() %s WHERE id = ANY(%s)`,
+		statusSQL.String(), errorMsgSQL.String(), renderingUpdateSQL, idsParam)
 
 	_, err := s.DB.Exec(ctx, sql, args...)
 	duration := time.Since(start)

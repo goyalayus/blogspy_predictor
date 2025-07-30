@@ -127,7 +127,7 @@ def _run_prediction_pipeline(
         }
     })
 
-    is_personal_blog = bool(prediction_prob > 0.5)
+    is_personal_blog = bool(prediction_prob > 0.75)
 
     pipeline_duration = (time.perf_counter() - pipeline_start) * 1000
     logger_adapter.info("Prediction pipeline completed", extra={
