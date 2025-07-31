@@ -9,6 +9,7 @@ require (
 )
 
 require (
+	github.com/abadojack/whatlanggo v1.0.1
 	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect

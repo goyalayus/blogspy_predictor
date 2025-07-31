@@ -130,6 +130,7 @@ func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRe
 				"final_url":        content.FinalURL,
 				"is_html":          !content.IsNonHTML,
 				"is_csr":           content.IsCSR,
+				"language":         content.Language, // MODIFIED: Added language to log
 				"html_content_len": len(content.HTMLContent),
 				"text_content_len": len(content.TextContent),
 			}),
@@ -144,6 +145,20 @@ func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRe
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, Rendering: domain.CSR, ErrorMsg: "Detected Client-Side Rendering"})
 		return nil
 	}
+
+	// --- NEW: Language check before calling the expensive ML API ---
+	if content.Language != "eng" && content.Language != "" {
+		errMsg := fmt.Sprintf("Non-English content detected (lang: %s)", content.Language)
+		jobLogger.Info("Skipping job, content is not in English",
+			"details", slog.GroupValue(
+				slog.Any("input", map[string]interface{}{"url": job.URL}),
+				slog.Any("output", map[string]interface{}{"reason": errMsg}),
+			),
+		)
+		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, ErrorMsg: errMsg})
+		return nil
+	}
+	// --- End of new logic ---
 
 	reqBody := domain.PredictionRequest{URL: content.FinalURL, HTMLContent: content.HTMLContent, TextContent: content.TextContent}
 	jsonBody, _ := json.Marshal(reqBody)

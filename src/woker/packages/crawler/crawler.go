@@ -12,6 +12,7 @@ import (
 	"worker/packages/domain"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/abadojack/whatlanggo"
 )
 
 type Crawler struct {
@@ -71,20 +72,44 @@ func (c *Crawler) FetchAndParseContent(ctx context.Context, rawURL string) (*dom
 		content.IsCSR = true
 	}
 
-	if content.IsCSR {
-		slog.Debug("Detected client-side rendering", "url", rawURL)
-		return content, nil
-	}
-
-	// If not CSR, extract all content now.
+	// Extract content before language detection.
 	content.Title = strings.TrimSpace(doc.Find("title").First().Text())
 	if val, exists := doc.Find("meta[name='description']").Attr("content"); exists {
 		content.Description = strings.TrimSpace(val)
 	}
 
-	doc.Find("script, style, noscript").Remove()
-	re := strings.NewReplacer("\n", " ", "\t", " ", "\r", " ")
-	content.TextContent = strings.Join(strings.Fields(re.Replace(doc.Text())), " ")
+	// --- NEW: Language Detection Logic ---
+	textForDetection := content.Title + " " + content.Description
+	// Fallback to text content if title/desc are empty
+	if strings.TrimSpace(textForDetection) == "" {
+		doc.Find("script, style, noscript").Remove()
+		re := strings.NewReplacer("\n", " ", "\t", " ", "\r", " ")
+		content.TextContent = strings.Join(strings.Fields(re.Replace(doc.Text())), " ")
+		// Use a small part of the body text for detection as a fallback
+		if len(content.TextContent) > 500 {
+			textForDetection = content.TextContent[:500]
+		} else {
+			textForDetection = content.TextContent
+		}
+	}
+
+	if textForDetection != "" {
+		info := whatlanggo.Detect(textForDetection)
+		content.Language = info.Lang.Iso6393() // e.g., "eng", "deu"
+	}
+	// End of new logic
+
+	if content.IsCSR {
+		slog.Debug("Detected client-side rendering", "url", rawURL)
+		return content, nil
+	}
+
+	// If not CSR and text content wasn't already extracted for the fallback, extract it now.
+	if content.TextContent == "" {
+		doc.Find("script, style, noscript").Remove()
+		re := strings.NewReplacer("\n", " ", "\t", " ", "\r", " ")
+		content.TextContent = strings.Join(strings.Fields(re.Replace(doc.Text())), " ")
+	}
 
 	return content, nil
 }
