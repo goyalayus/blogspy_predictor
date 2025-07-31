@@ -240,7 +240,7 @@ func (w *Worker) processCrawlTask(ctx context.Context, job domain.URLRecord, job
 		slog.String("name", "CRAWL_TASK_STARTED"),
 		slog.String("stage", "start"),
 	))
-	
+
 	fetchStart := time.Now()
 	content, err := w.crawler.FetchAndParseContent(ctx, job.URL)
 	fetchDuration := time.Since(fetchStart)
@@ -293,10 +293,14 @@ func (w *Worker) processCrawlTask(ctx context.Context, job domain.URLRecord, job
 	return nil
 }
 
+// =================================================================================
+// MODIFIED SECTION STARTS HERE
+// =================================================================================
+
 // handleCrawlLogic now accepts the logger and returns the count of links queued, for logging purposes.
 func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, content *domain.FetchedContent, jobLogger *slog.Logger) (int, error) {
 	logicStart := time.Now()
-	
+
 	extractStart := time.Now()
 	newLinksRaw := w.crawler.ExtractLinks(content.GoqueryDoc, content.FinalURL, w.cfg.IgnoreExtensions)
 	extractDuration := time.Since(extractStart)
@@ -332,35 +336,47 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 		return 0, nil
 	}
 
-	// Perform all DB reads here in the worker, not in a transaction.
-	dbReadStart := time.Now()
+	// --- Individual DB Read Timings ---
+	var netlocDuration, existingDuration, decisionDuration time.Duration
+
+	// Query 1: Get Netloc Counts
+	netlocStart := time.Now()
 	netlocCountsRows, err := w.storage.Queries.GetNetlocCounts(ctx, allNetlocsFound)
 	if err != nil {
 		return 0, fmt.Errorf("crawl-logic: failed to get netloc counts: %w", err)
 	}
+	netlocDuration = time.Since(netlocStart)
 	netlocCounts := make(map[string]int32)
 	for _, row := range netlocCountsRows {
 		netlocCounts[row.Netloc] = row.UrlCount
 	}
 
+	// Query 2: Get Existing URLs
+	existingStart := time.Now()
 	existingURLsRows, err := w.storage.Queries.GetExistingURLs(ctx, newLinksRaw)
 	if err != nil {
 		return 0, fmt.Errorf("crawl-logic: failed to check existing urls: %w", err)
 	}
+	existingDuration = time.Since(existingStart)
 	existingURLs := make(map[string]struct{}, len(existingURLsRows))
 	for _, urlStr := range existingURLsRows {
 		existingURLs[urlStr] = struct{}{}
 	}
 
+	// Query 3: Get Domain Decisions
+	decisionStart := time.Now()
 	domainDecisionsRows, err := w.storage.Queries.GetDomainDecisions(ctx, allNetlocsFound)
 	if err != nil {
 		return 0, fmt.Errorf("crawl-logic: failed to get domain decisions: %w", err)
 	}
+	decisionDuration = time.Since(decisionStart)
 	domainDecisions := make(map[string]generated.CrawlStatus)
 	for _, row := range domainDecisionsRows {
 		domainDecisions[row.Netloc] = row.Status
 	}
-	dbReadDuration := time.Since(dbReadStart)
+
+	totalDbReadDuration := netlocDuration + existingDuration + decisionDuration
+	// --- End of Timings ---
 
 	// Now call the pure filtering logic with all the data it needs.
 	linksToQueue := w.filterAndPrepareLinks(job, linksByNetloc, netlocCounts, existingURLs, domainDecisions)
@@ -374,8 +390,13 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 		"event", slog.GroupValue(slog.String("name", "LINK_FILTERING_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(logicDuration.Microseconds())/1000.0)),
 		"details", slog.GroupValue(
 			slog.Any("input", map[string]interface{}{
-				"raw_link_count":           len(newLinksRaw),
-				"db_read_duration_ms":      float64(dbReadDuration.Microseconds()) / 1000.0,
+				"raw_link_count": len(newLinksRaw),
+				"timings_ms": map[string]float64{
+					"total_db_read":      float64(totalDbReadDuration.Microseconds()) / 1000.0,
+					"get_netloc_counts":  float64(netlocDuration.Microseconds()) / 1000.0,
+					"get_existing_urls":  float64(existingDuration.Microseconds()) / 1000.0,
+					"get_domain_decisions": float64(decisionDuration.Microseconds()) / 1000.0,
+				},
 				"netloc_count_map_size":    len(netlocCounts),
 				"existing_url_map_size":    len(existingURLs),
 				"domain_decision_map_size": len(domainDecisions),
@@ -386,6 +407,10 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 
 	return len(linksToQueue), nil
 }
+
+// =================================================================================
+// MODIFIED SECTION ENDS HERE
+// =================================================================================
 
 // filterAndPrepareLinks is the refactored, pure-function version of the old crawl logic.
 // It takes data and returns a list of links to be queued, performing no I/O itself.

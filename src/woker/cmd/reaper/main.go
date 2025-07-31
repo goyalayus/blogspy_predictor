@@ -18,12 +18,9 @@ import (
 )
 
 const (
-	// DELETED: This is now handled within the db package directly.
 	pendingCounterName = "pending_urls_count"
 )
 
-// NOTE: Ideally, this function would live in a shared 'logging' package.
-// It is duplicated here to adhere to the response constraints.
 func setupLogger(cfg config.Config) {
 	var level slog.Level
 	switch strings.ToLower(cfg.LogLevel) {
@@ -37,7 +34,6 @@ func setupLogger(cfg config.Config) {
 		level = slog.LevelInfo
 	}
 
-	// Configure log rotation
 	logRotator := &lumberjack.Logger{
 		Filename:   cfg.LogFile,
 		MaxSize:    5, // megabytes
@@ -46,7 +42,6 @@ func setupLogger(cfg config.Config) {
 		Compress:   true,
 	}
 
-	// MultiWriter to log to both file and stdout (for container logs)
 	multiWriter := io.MultiWriter(os.Stdout, logRotator)
 
 	handler := slog.NewJSONHandler(multiWriter, &slog.HandlerOptions{
@@ -66,7 +61,6 @@ func setupLogger(cfg config.Config) {
 func main() {
 	tempCfg, err := config.Load()
 	if err != nil {
-		// Use a basic logger for this fatal error since the main one isn't set up.
 		slog.New(slog.NewJSONHandler(os.Stderr, nil)).Error("FATAL: Failed to load configuration for logger setup", "error", err)
 		os.Exit(1)
 	}
@@ -90,8 +84,7 @@ func main() {
 	}
 	defer storage.Close()
 
-	// Use separate tickers for each distinct task for clarity and future flexibility.
-	mainTicker := time.NewTicker(20 * time.Second) // Ticker for frequent tasks
+	mainTicker := time.NewTicker(20 * time.Second)
 	defer mainTicker.Stop()
 
 	netlocCacheTicker := time.NewTicker(cfg.NetlocCountRefreshInterval)
@@ -100,7 +93,6 @@ func main() {
 	stalledJobTicker := time.NewTicker(15 * time.Minute)
 	defer stalledJobTicker.Stop()
 
-	// NEW: Ticker for the less frequent orphan cleanup task.
 	orphanCheckTicker := time.NewTicker(30 * time.Minute)
 	defer orphanCheckTicker.Stop()
 
@@ -111,12 +103,19 @@ func main() {
 		"orphan_job_check", "30m",
 	)
 
-	// Run tasks once on startup for immediate feedback
+	// --- Run startup tasks ---
 	go func() {
+		// NEW: Rehydrate Bloom Filter on startup. Use a background context
+		// so it can complete even if the main context is cancelled.
+		if err := storage.RehydrateBloomFilter(context.Background()); err != nil {
+			slog.Error("Bloom filter rehydration failed on startup", "error", err)
+		}
+
+		// Existing startup tasks
 		_ = storage.RefreshPendingURLCount(ctx)
 		_ = storage.RefreshNetlocCounts(ctx)
 		_ = storage.ResetStalledJobs(ctx)
-		_ = storage.ResetOrphanedJobs(ctx) // Run orphan check on startup too
+		_ = storage.ResetOrphanedJobs(ctx)
 	}()
 
 	for {
@@ -125,22 +124,18 @@ func main() {
 			slog.Info("Shutdown signal received. Exiting...")
 			return
 		case <-mainTicker.C:
-			// Task 1: Refresh the pending URL count (every 20s)
 			if err := storage.RefreshPendingURLCount(ctx); err != nil {
 				slog.Error("Failed to refresh pending URL count", "error", err)
 			}
 		case <-netlocCacheTicker.C:
-			// Task 2: Refresh the netloc counts cache
 			if err := storage.RefreshNetlocCounts(ctx); err != nil {
 				slog.Error("Failed to refresh netloc counts cache", "error", err)
 			}
 		case <-stalledJobTicker.C:
-			// Task 3: Reset stalled jobs
 			if err := storage.ResetStalledJobs(ctx); err != nil {
 				slog.Error("Failed to reset stalled jobs", "error", err)
 			}
-		case <-orphanCheckTicker.C: // NEW
-			// Task 4: Reset orphaned completed jobs
+		case <-orphanCheckTicker.C:
 			if err := storage.ResetOrphanedJobs(ctx); err != nil {
 				slog.Error("Failed to reset orphaned jobs", "error", err)
 			}
