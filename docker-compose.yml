@@ -11,7 +11,7 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - LOG_FILE=/app/logs/python_api.log
-      - LOG_LEVEL=INFO
+      - LOG_LEVEL=${LOG_LEVEL}
     networks: [app-net]
     depends_on: { redis: { condition: service_healthy } }
 
@@ -26,7 +26,7 @@ services:
       - ML_API_URL=http://python-api:8000
       - REDIS_ADDR=redis:6379
       - LOG_FILE=/logs/worker.log
-      - LOG_LEVEL=INFO
+      - LOG_LEVEL=${LOG_LEVEL}
     networks: [app-net]
     depends_on: { python-api: { condition: service_started }, redis: { condition: service_healthy } }
 
@@ -40,7 +40,7 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_ADDR=redis:6379
       - LOG_FILE=/logs/reaper.log
-      - LOG_LEVEL=INFO
+      - LOG_LEVEL=${LOG_LEVEL}
       - ML_API_URL=http://python-api:8000
     networks: [app-net]
     depends_on:
@@ -99,6 +99,8 @@ services:
     image: timberio/vector:0.36.0-debian
     container_name: vector-log-collector
     restart: unless-stopped
+    # ADD THIS COMMAND to tell Vector which config file to use
+    command: ["--config", "/etc/vector/vector.toml"]
     volumes:
       - ./vector/vector.toml:/etc/vector/vector.toml:ro
       - ./logs:/var/log/app:ro

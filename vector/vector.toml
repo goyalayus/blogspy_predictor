@@ -35,5 +35,8 @@
   tls.verify_certificate = false
   index = "blogspy-%Y.%m.%d"
   mode = "data_stream"
-  buffer.type = "memory"
-  buffer.max_size = 50000000
+
+  # CORRECTED BUFFER CONFIGURATION
+  [sinks.opensearch_sink.buffer]
+    type = "memory"
+    max_size = 50000000
