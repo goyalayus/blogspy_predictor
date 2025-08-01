@@ -47,7 +47,6 @@ CREATE TABLE url_edges (
 
 CREATE INDEX idx_urls_netloc ON urls (netloc);
 
-DROP INDEX IF EXISTS idx_urls_status;
 
 CREATE INDEX idx_urls_pending_classification ON urls (id)
 WHERE status = 'pending_classification';

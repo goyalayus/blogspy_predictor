@@ -25,6 +25,7 @@ func New(timeout time.Duration) *Crawler {
 	}
 }
 
+
 func (c *Crawler) FetchAndParseContent(ctx context.Context, rawURL string) (*domain.FetchedContent, error) {
 	slog.Debug("Starting content fetch and parse", "url", rawURL)
 	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
@@ -72,45 +73,42 @@ func (c *Crawler) FetchAndParseContent(ctx context.Context, rawURL string) (*dom
 		content.IsCSR = true
 	}
 
-	// Extract content before language detection.
+	// Extract metadata
 	content.Title = strings.TrimSpace(doc.Find("title").First().Text())
 	if val, exists := doc.Find("meta[name='description']").Attr("content"); exists {
 		content.Description = strings.TrimSpace(val)
 	}
 
-	// --- NEW: Language Detection Logic ---
-	textForDetection := content.Title + " " + content.Description
-	// Fallback to text content if title/desc are empty
-	if strings.TrimSpace(textForDetection) == "" {
-		doc.Find("script, style, noscript").Remove()
-		re := strings.NewReplacer("\n", " ", "\t", " ", "\r", " ")
-		content.TextContent = strings.Join(strings.Fields(re.Replace(doc.Text())), " ")
-		// Use a small part of the body text for detection as a fallback
-		if len(content.TextContent) > 500 {
-			textForDetection = content.TextContent[:500]
-		} else {
-			textForDetection = content.TextContent
-		}
+	// Extract clean text content once, to be used for both language detection and the final result.
+	doc.Find("script, style, noscript").Remove()
+	re := strings.NewReplacer("\n", " ", "\t", " ", "\r", " ")
+	content.TextContent = strings.Join(strings.Fields(re.Replace(doc.Text())), " ")
+
+	// --- MODIFIED: Language Detection Logic ---
+	// Create a more robust sample for language detection by combining metadata and body text.
+	var textSnippet string
+	words := strings.Fields(content.TextContent)
+	if len(words) > 100 {
+		textSnippet = strings.Join(words[:100], " ")
+	} else {
+		textSnippet = content.TextContent
 	}
 
-	if textForDetection != "" {
+	// Combine title, description, and the first 100 words for a better detection sample.
+	textForDetection := content.Title + " " + content.Description + " " + textSnippet
+
+	if strings.TrimSpace(textForDetection) != "" {
 		info := whatlanggo.Detect(textForDetection)
 		content.Language = info.Lang.Iso6393() // e.g., "eng", "deu"
 	}
-	// End of new logic
+	// --- End of modified logic ---
 
 	if content.IsCSR {
 		slog.Debug("Detected client-side rendering", "url", rawURL)
 		return content, nil
 	}
 
-	// If not CSR and text content wasn't already extracted for the fallback, extract it now.
-	if content.TextContent == "" {
-		doc.Find("script, style, noscript").Remove()
-		re := strings.NewReplacer("\n", " ", "\t", " ", "\r", " ")
-		content.TextContent = strings.Join(strings.Fields(re.Replace(doc.Text())), " ")
-	}
-
+	// The full text content was already extracted above, so no more work is needed here.
 	return content, nil
 }
 
