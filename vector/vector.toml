@@ -1,0 +1,39 @@
+# vector.toml - Configuration for the Vector log collector
+
+# ============================================
+# Sources - Where to get logs from
+# ============================================
+[sources.python_api_logs]
+  type = "file"
+  include = ["/var/log/app/python_api.log"] # Path inside the Vector container
+  decoder.codec = "json"
+
+[sources.go_worker_logs]
+  type = "file"
+  include = ["/var/log/app/worker.log"]
+  decoder.codec = "json"
+
+[sources.go_reaper_logs] # <-- NEW SECTION
+  type = "file"
+  include = ["/var/log/app/reaper.log"]
+  decoder.codec = "json"
+
+
+# ============================================
+# Sinks - Where to send logs
+# ============================================
+
+[sinks.opensearch_sink]
+  inputs = ["python_api_logs", "go_worker_logs", "go_reaper_logs"]
+  type = "elasticsearch"
+  # Note the change to https
+  endpoint = "https://opensearch-node:9200"
+  # Authentication using environment variables passed from docker-compose
+  auth.user = "${OPENSEARCH_USERNAME}"
+  auth.password = "${OPENSEARCH_PASSWORD}"
+  # This is needed because the default docker image uses a demo cert
+  tls.verify_certificate = false
+  index = "blogspy-%Y.%m.%d"
+  mode = "data_stream"
+  buffer.type = "memory"
+  buffer.max_size = 50000000
