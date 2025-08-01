@@ -76,7 +76,7 @@ services:
     networks: [app-net]
     healthcheck:
       # Secure healthcheck using the default admin user and the password from the .env file
-      test: ["CMD-SHELL", "curl -sS --fail -u 'admin:${OPENSEARCH_INITIAL_ADMIN_PASSWORD}' http://localhost:9200/_cluster/health | grep -vq '\"status\":\"red\"'"]
+      test: ["CMD-SHELL", "curl -sS --fail -k -u 'admin:${OPENSEARCH_INITIAL_ADMIN_PASSWORD}' https://localhost:9200/_cluster/health | grep -vq '\"status\":\"red\"'"]
       interval: 30s
       timeout: 10s
       retries: 5
