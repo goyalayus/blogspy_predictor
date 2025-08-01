@@ -51,13 +51,16 @@ services:
   #  Supporting Infrastructure (redis is unchanged)
   # =======================================================
   redis:
-    image: redis:7-alpine
+    # WRONG: image: redis:7-alpine
+    # CORRECT: Use the Redis Stack image which includes the Bloom module
+    image: redis/redis-stack-server:latest 
     container_name: redis
     restart: unless-stopped
     ports: ["6379:6379"]
     volumes: [redis-data:/data]
     networks: [app-net]
-    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 10s, timeout: 5s, retries: 5 }
+    # The healthcheck for redis-stack is slightly different
+    healthcheck: { test: ["CMD", "redis-cli", "-h", "localhost", "-p", "6379", "ping"], interval: 10s, timeout: 5s, retries: 5 }
 
   # =======================================================
   #  Log Management Stack (MAJOR CHANGES HERE)
