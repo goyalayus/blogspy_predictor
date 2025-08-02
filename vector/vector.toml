@@ -10,27 +10,37 @@
   type = "file"
   include = ["/var/log/app/reaper.log"]
 
-# Add transforms to parse JSON
+
+
 [transforms.parse_python_api]
   type = "remap"
   inputs = ["python_api_logs"]
   source = '''
-    .message = parse_json!(string!(.message))
+    . = merge!(parse_json!(.message), .)
+    del(.message)
   '''
 
 [transforms.parse_go_worker]
   type = "remap"
   inputs = ["go_worker_logs"]
   source = '''
-    .message = parse_json!(string!(.message))
+    . = merge!(parse_json!(.message), .)
+    .timestamp = .time  # slog uses 'time' by default
+    del(.message)
+    del(.time)
   '''
 
 [transforms.parse_go_reaper]
   type = "remap"
   inputs = ["go_reaper_logs"]
   source = '''
-    .message = parse_json!(string!(.message))
+    . = merge!(parse_json!(.message), .)
+    .timestamp = .time  # slog uses 'time' by default
+    del(.message)
+    del(.time)
   '''
+
+# ... your sinks section remains the same
 
 [sinks.opensearch_sink]
   inputs = ["parse_python_api", "parse_go_worker", "parse_go_reaper"]
