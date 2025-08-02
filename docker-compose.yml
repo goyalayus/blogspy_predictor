@@ -20,12 +20,12 @@ services:
     container_name: go-worker
     restart: unless-stopped
     command: ["/worker"]
-    volumes: ["./logs:/logs"]
+    volumes: ["./logs:/app/logs"]
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - ML_API_URL=http://python-api:8000
       - REDIS_ADDR=redis:6379
-      - LOG_FILE=/logs/worker.log
+      - LOG_FILE=/app/logs/worker.log
       - LOG_LEVEL=${LOG_LEVEL}
     networks: [app-net]
     depends_on: { python-api: { condition: service_started }, redis: { condition: service_healthy } }
@@ -35,11 +35,11 @@ services:
     container_name: go-reaper
     restart: unless-stopped
     command: ["/reaper"]
-    volumes: ["./logs:/logs"]
+    volumes: ["./logs:/app/logs"]
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_ADDR=redis:6379
-      - LOG_FILE=/logs/reaper.log
+      - LOG_FILE=/app/logs/reaper.log
       - LOG_LEVEL=${LOG_LEVEL}
       - ML_API_URL=http://python-api:8000
     networks: [app-net]
