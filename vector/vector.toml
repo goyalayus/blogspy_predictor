@@ -1,42 +1,57 @@
-# vector.toml - Configuration for the Vector log collector
-
-# ============================================
-# Sources - Where to get logs from
-# ============================================
 [sources.python_api_logs]
   type = "file"
-  include = ["/var/log/app/python_api.log"] # Path inside the Vector container
-  decoder.codec = "json"
+  include = ["/var/log/app/python_api.log"]
 
 [sources.go_worker_logs]
   type = "file"
   include = ["/var/log/app/worker.log"]
-  decoder.codec = "json"
 
-[sources.go_reaper_logs] # <-- NEW SECTION
+[sources.go_reaper_logs]
   type = "file"
   include = ["/var/log/app/reaper.log"]
-  decoder.codec = "json"
 
+# Add transforms to parse JSON
+[transforms.parse_python_api]
+  type = "remap"
+  inputs = ["python_api_logs"]
+  source = '''
+    .message = parse_json!(string!(.message))
+  '''
 
-# ============================================
-# Sinks - Where to send logs
-# ============================================
+[transforms.parse_go_worker]
+  type = "remap"
+  inputs = ["go_worker_logs"]
+  source = '''
+    .message = parse_json!(string!(.message))
+  '''
+
+[transforms.parse_go_reaper]
+  type = "remap"
+  inputs = ["go_reaper_logs"]
+  source = '''
+    .message = parse_json!(string!(.message))
+  '''
 
 [sinks.opensearch_sink]
-  inputs = ["python_api_logs", "go_worker_logs", "go_reaper_logs"]
+  inputs = ["parse_python_api", "parse_go_worker", "parse_go_reaper"]
   type = "elasticsearch"
-  # Note the change to https
-  endpoint = "https://opensearch-node:9200"
-  # Authentication using environment variables passed from docker-compose
-  auth.user = "${OPENSEARCH_USERNAME}"
-  auth.password = "${OPENSEARCH_PASSWORD}"
-  # This is needed because the default docker image uses a demo cert
-  tls.verify_certificate = false
-  index = "blogspy-%Y.%m.%d"
+  endpoints = ["https://opensearch-node:9200"]
   mode = "data_stream"
+  
+  # Remove or disable type field for OpenSearch compatibility
+  suppress_type_name = true
+  
+  buffer.type = "memory"
+  buffer.max_events = 5000
+  buffer.when_full = "block"
 
-  # CORRECTED BUFFER CONFIGURATION
-  [sinks.opensearch_sink.buffer]
-    type = "memory"
-    max_size = 50000000
+  [sinks.opensearch_sink.data_stream]
+    name = "blogspy"
+
+  [sinks.opensearch_sink.auth]
+    strategy = "basic"
+    user = "${OPENSEARCH_USERNAME}"
+    password = "${OPENSEARCH_PASSWORD}"
+
+  [sinks.opensearch_sink.tls]
+    verify_certificate = false
