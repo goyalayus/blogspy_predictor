@@ -14,6 +14,7 @@ import (
 	"worker/packages/crawler"
 	"worker/packages/db"
 	"worker/packages/generated"
+	"worker/packages/metrics"
 	"worker/packages/worker"
 
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -81,6 +82,8 @@ func main() {
 		slog.Error("Failed to load configuration", "error", err)
 		os.Exit(1)
 	}
+
+	go metrics.ExposeMetrics("0.0.0.0:9091")
 
 	storage, err := db.New(ctx, cfg)
 	if err != nil {

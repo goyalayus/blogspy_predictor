@@ -3,7 +3,9 @@ services:
     build: { context: ., dockerfile: Dockerfile }
     container_name: python-api
     restart: unless-stopped
-    ports: ["8000:8000"]
+    ports:
+      - "8000:8000"
+      - "9092:9092"
     volumes: ["./logs:/app/logs"]
     environment:
       - DATABASE_URL=${DATABASE_URL}
@@ -11,7 +13,7 @@ services:
       - LOG_LEVEL=${LOG_LEVEL}
     networks: [app-net]
     depends_on: { redis: { condition: service_healthy } }
-  
+
   go-worker:
     build:
       context: ./src/woker
@@ -19,6 +21,8 @@ services:
     container_name: go-worker
     restart: unless-stopped
     command: ["/worker"]
+    ports:
+      - "9091:9091"
     volumes: ["./logs:/app/logs"]
     environment:
       - DATABASE_URL=${DATABASE_URL}
@@ -45,6 +49,26 @@ services:
       - ML_API_URL=http://python-api:8000
     networks: [app-net]
     depends_on: [redis, opensearch-node]
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: prometheus
+    restart: unless-stopped
+    ports: ["9090:9090"]
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command: --config.file=/etc/prometheus/prometheus.yml
+    networks: [app-net]
+
+  grafana:
+    image: grafana/grafana-oss:11.1.0
+    container_name: grafana
+    restart: unless-stopped
+    ports: ["3000:3000"]
+    volumes: [grafana-data:/var/lib/grafana]
+    networks: [app-net]
+    depends_on: [prometheus]
 
   redis:
     image: redis/redis-stack-server:latest
@@ -99,6 +123,8 @@ services:
 volumes:
   opensearch-data:
   redis-data:
+  prometheus-data:
+  grafana-data:
 
 networks:
   app-net:

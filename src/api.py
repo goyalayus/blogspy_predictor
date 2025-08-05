@@ -13,8 +13,8 @@ import logging.config
 import uuid
 from contextlib import asynccontextmanager
 from pythonjsonlogger import jsonlogger
+from prometheus_fastapi_instrumentator import Instrumentator
 
-# --- Project Root Setup ---
 project_root = pathlib.Path(__file__).parent.parent
 sys.path.append(str(project_root.resolve()))
 
@@ -25,11 +25,9 @@ from src.feature_engineering import (
 )
 from src.config import MODELS_DIR
 
-# --- NEW: Structured Logging Configuration ---
 LOG_FILE = os.getenv("LOG_FILE", "logs/python_api.log")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
-# Ensure the log directory exists
 os.makedirs(pathlib.Path(LOG_FILE).parent, exist_ok=True)
 
 LOGGING_CONFIG = {
@@ -51,15 +49,23 @@ LOGGING_CONFIG = {
             "class": "logging.handlers.RotatingFileHandler",
             "formatter": "json",
             "filename": LOG_FILE,
-            "maxBytes": 10485760,  # 10 MB
+            "maxBytes": 10485760,
             "backupCount": 5,
             "encoding": "utf-8",
         },
     },
     "loggers": {
         "uvicorn": {"handlers": ["console", "file"], "level": LOG_LEVEL},
-        "BlogSpyAPI": {"handlers": ["console", "file"], "level": LOG_LEVEL, "propagate": False},
-        "FeatureEngineering": {"handlers": ["console", "file"], "level": LOG_LEVEL, "propagate": False},
+        "BlogSpyAPI": {
+            "handlers": ["console", "file"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
+        "FeatureEngineering": {
+            "handlers": ["console", "file"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
     },
     "root": {"handlers": ["console", "file"], "level": LOG_LEVEL},
 }
@@ -81,62 +87,89 @@ def _run_prediction_pipeline(
     pipeline_start = time.perf_counter()
     df = pd.DataFrame([data.dict()])
 
-    # --- Text Vectorization ---
     vec_start = time.perf_counter()
     txt_feat = artifact["vectorizer"].transform(df["text_content"].fillna(""))
     vec_duration = (time.perf_counter() - vec_start) * 1000
-    logger_adapter.info("Completed text vectorization", extra={
-        "event": {"name": "TEXT_VECTORIZATION_COMPLETED", "stage": "end", "duration_ms": round(vec_duration, 2)},
-        "details": {
-            "input": {"text_content_len": len(data.text_content)},
-            "output": {"vector_shape": list(txt_feat.shape)}
-        }
-    })
+    logger_adapter.info(
+        "Completed text vectorization",
+        extra={
+            "event": {
+                "name": "TEXT_VECTORIZATION_COMPLETED",
+                "stage": "end",
+                "duration_ms": round(vec_duration, 2),
+            },
+            "details": {
+                "input": {"text_content_len": len(data.text_content)},
+                "output": {"vector_shape": list(txt_feat.shape)},
+            },
+        },
+    )
 
-    # --- Feature Engineering ---
     feat_start = time.perf_counter()
     url_feats = extract_url_features(df["url"])
     struct_feats = extract_structural_features(df["html_content"])
     content_feats = extract_content_features(df["text_content"])
     feat_duration = (time.perf_counter() - feat_start) * 1000
-    logger_adapter.info("Completed feature engineering", extra={
-        "event": {"name": "FEATURE_EXTRACTION_COMPLETED", "stage": "end", "duration_ms": round(feat_duration, 2)},
-        "details": {
-            # Not logging full features, just confirmation they were built
-            "output": {
-                "url_features_shape": list(url_feats.shape),
-                "structural_features_shape": list(struct_feats.shape),
-                "content_features_shape": list(content_feats.shape),
-            }
-        }
-    })
+    logger_adapter.info(
+        "Completed feature engineering",
+        extra={
+            "event": {
+                "name": "FEATURE_EXTRACTION_COMPLETED",
+                "stage": "end",
+                "duration_ms": round(feat_duration, 2),
+            },
+            "details": {
+                "output": {
+                    "url_features_shape": list(url_feats.shape),
+                    "structural_features_shape": list(struct_feats.shape),
+                    "content_features_shape": list(content_feats.shape),
+                }
+            },
+        },
+    )
 
     num_feat_df = pd.concat([url_feats, struct_feats, content_feats], axis=1)
     num_feat = sp.csr_matrix(num_feat_df.to_numpy(dtype="float32"))
     features = sp.hstack([txt_feat, num_feat], format="csr")
 
-    # --- Model Prediction ---
     pred_start = time.perf_counter()
     prediction_prob = artifact["model"].predict(features)[0]
     pred_duration = (time.perf_counter() - pred_start) * 1000
-    logger_adapter.info("Completed model prediction", extra={
-        "event": {"name": "MODEL_PREDICTION_COMPLETED", "stage": "end", "duration_ms": round(pred_duration, 2)},
-        "details": {
-            "input": {"feature_vector_shape": list(features.shape)},
-            "output": {"raw_probability": float(prediction_prob)}
-        }
-    })
+    logger_adapter.info(
+        "Completed model prediction",
+        extra={
+            "event": {
+                "name": "MODEL_PREDICTION_COMPLETED",
+                "stage": "end",
+                "duration_ms": round(pred_duration, 2),
+            },
+            "details": {
+                "input": {"feature_vector_shape": list(features.shape)},
+                "output": {"raw_probability": float(prediction_prob)},
+            },
+        },
+    )
 
     is_personal_blog = bool(prediction_prob > 0.75)
 
     pipeline_duration = (time.perf_counter() - pipeline_start) * 1000
-    logger_adapter.info("Prediction pipeline completed", extra={
-        "event": {"name": "PREDICTION_PIPELINE_COMPLETED", "stage": "end", "duration_ms": round(pipeline_duration, 2)},
-        "details": {
-            "input": {"url": data.url},
-            "output": {"is_personal_blog": is_personal_blog, "prediction_prob": float(prediction_prob)}
-        }
-    })
+    logger_adapter.info(
+        "Prediction pipeline completed",
+        extra={
+            "event": {
+                "name": "PREDICTION_PIPELINE_COMPLETED",
+                "stage": "end",
+                "duration_ms": round(pipeline_duration, 2),
+            },
+            "details": {
+                "input": {"url": data.url},
+                "output": {
+                    "is_personal_blog": is_personal_blog,
+                    "prediction_prob": float(prediction_prob),
+                },
+            },
+        },
+    )
 
     return is_personal_blog, float(prediction_prob)
 
@@ -161,14 +194,23 @@ async def lifespan(app: FastAPI):
         load_duration = (time.perf_counter() - load_start) * 1000
 
         if "vectorizer" not in app.state.artifact or "model" not in app.state.artifact:
-            msg = "FATAL: Model artifact is invalid. Missing 'vectorizer' or 'model' key."
+            msg = (
+                "FATAL: Model artifact is invalid. Missing 'vectorizer' or 'model' key."
+            )
             logger.error(msg, extra={"event": {"name": "MODEL_LOADING_FAILED"}})
             raise ValueError(msg)
-        
-        logger.info("Model artifact loaded successfully", extra={
-            "event": {"name": "MODEL_LOADING_COMPLETED", "stage": "end", "duration_ms": round(load_duration, 2)},
-            "details": {"input": {"model_path": app.state.model_path}}
-        })
+
+        logger.info(
+            "Model artifact loaded successfully",
+            extra={
+                "event": {
+                    "name": "MODEL_LOADING_COMPLETED",
+                    "stage": "end",
+                    "duration_ms": round(load_duration, 2),
+                },
+                "details": {"input": {"model_path": app.state.model_path}},
+            },
+        )
 
     except Exception as e:
         load_duration = (time.perf_counter() - load_start) * 1000
@@ -176,9 +218,13 @@ async def lifespan(app: FastAPI):
             "FATAL: Failed to load model artifact.",
             exc_info=True,
             extra={
-                "event": {"name": "MODEL_LOADING_FAILED", "stage": "end", "duration_ms": round(load_duration, 2)},
-                "details": {"error": {"message": str(e)}}
-            }
+                "event": {
+                    "name": "MODEL_LOADING_FAILED",
+                    "stage": "end",
+                    "duration_ms": round(load_duration, 2),
+                },
+                "details": {"error": {"message": str(e)}},
+            },
         )
         raise RuntimeError(f"Could not load model artifact: {e}") from e
 
@@ -196,31 +242,44 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+instrumentator = Instrumentator().instrument(app)
+
+
+@app.on_event("startup")
+async def _startup():
+    instrumentator.expose(app, endpoint="/metrics", port=9092, include_in_schema=False)
+
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     """Logs incoming requests and their processing time with a unique correlation ID."""
     request_id = str(uuid.uuid4())
-    # Make request_id available to the rest of the app
     request.state.request_id = request_id
 
     start_time = time.time()
     response = await call_next(request)
     process_time = (time.time() - start_time) * 1000
-    
-    logger.info("Processed incoming HTTP request", extra={
-        "service": "python-api",
-        "correlation_id": request_id,
-        "event": {"name": "HTTP_REQUEST_COMPLETED", "stage": "end", "duration_ms": round(process_time, 2)},
-        "details": {
-            "input": {
-                "method": request.method,
-                "path": request.url.path,
-                "client_ip": request.client.host,
+
+    logger.info(
+        "Processed incoming HTTP request",
+        extra={
+            "service": "python-api",
+            "correlation_id": request_id,
+            "event": {
+                "name": "HTTP_REQUEST_COMPLETED",
+                "stage": "end",
+                "duration_ms": round(process_time, 2),
             },
-            "output": {"status_code": response.status_code}
-        }
-    })
+            "details": {
+                "input": {
+                    "method": request.method,
+                    "path": request.url.path,
+                    "client_ip": request.client.host,
+                },
+                "output": {"status_code": response.status_code},
+            },
+        },
+    )
     return response
 
 
@@ -250,22 +309,28 @@ def predict(request: PredictionRequest, http_request: Request):
     Analyzes the provided URL and content to predict its classification.
     """
     request_id = http_request.state.request_id
-    # Use a logger adapter to automatically add the correlation_id to all log records
-    logger_adapter = logging.LoggerAdapter(logger, {"correlation_id": request_id, "service": "python-api"})
-    
-    logger_adapter.info("Prediction request received", extra={
-        "event": {"name": "PREDICTION_PIPELINE_STARTED", "stage": "start"},
-        "details": {
-            "input": {
-                "url": request.url,
-                "html_content_len": len(request.html_content),
-                "text_content_len": len(request.text_content)
-            }
-        }
-    })
+    logger_adapter = logging.LoggerAdapter(
+        logger, {"correlation_id": request_id, "service": "python-api"}
+    )
+
+    logger_adapter.info(
+        "Prediction request received",
+        extra={
+            "event": {"name": "PREDICTION_PIPELINE_STARTED", "stage": "start"},
+            "details": {
+                "input": {
+                    "url": request.url,
+                    "html_content_len": len(request.html_content),
+                    "text_content_len": len(request.text_content),
+                }
+            },
+        },
+    )
 
     try:
-        is_blog, probability = _run_prediction_pipeline(request, app.state.artifact, logger_adapter)
+        is_blog, probability = _run_prediction_pipeline(
+            request, app.state.artifact, logger_adapter
+        )
 
         confidence = probability if is_blog else 1 - probability
 
@@ -277,12 +342,12 @@ def predict(request: PredictionRequest, http_request: Request):
 
     except Exception as e:
         logger_adapter.error(
-            "Prediction pipeline failed with an exception", 
-            exc_info=True, 
+            "Prediction pipeline failed with an exception",
+            exc_info=True,
             extra={
                 "event": {"name": "PREDICTION_PIPELINE_FAILED"},
-                "details": {"error": {"message": str(e)}}
-            }
+                "details": {"error": {"message": str(e)}},
+            },
         )
         raise HTTPException(
             status_code=500,
@@ -299,9 +364,11 @@ def health_check():
     return {
         "status": "ok" if model_loaded else "degraded",
         "model_loaded": model_loaded,
-        "model_path_configured": app.state.model_path
-        if hasattr(app.state, "model_path")
-        else "Not configured",
+        "model_path_configured": (
+            app.state.model_path
+            if hasattr(app.state, "model_path")
+            else "Not configured"
+        ),
     }
 
 
