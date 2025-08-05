@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -31,22 +32,26 @@ func setupLogger(cfg config.Config) {
 		level = slog.LevelInfo
 	}
 
-	// Configure log rotation
+	logDir := filepath.Dir(cfg.LogFile)
+	if err := os.MkdirAll(logDir, 0750); err != nil {
+		slog.New(slog.NewJSONHandler(os.Stderr, nil)).Error(
+			"Failed to create log directory", "path", logDir, "error", err,
+		)
+	}
+
 	logRotator := &lumberjack.Logger{
 		Filename:   cfg.LogFile,
-		MaxSize:    10, // megabytes
+		MaxSize:    10,
 		MaxBackups: 5,
-		MaxAge:     30, // days
+		MaxAge:     30,
 		Compress:   true,
 	}
 
-	// MultiWriter to log to both file and stdout (for container logs)
 	multiWriter := io.MultiWriter(os.Stdout, logRotator)
 
 	handler := slog.NewJSONHandler(multiWriter, &slog.HandlerOptions{
 		Level: level,
 		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-			// Add a 'T' to the time format
 			if a.Key == slog.TimeKey {
 				a.Value = slog.StringValue(a.Value.Time().Format(time.RFC3339Nano))
 			}
@@ -59,9 +64,6 @@ func setupLogger(cfg config.Config) {
 }
 
 func main() {
-	// NOTE: Logger is configured before any other operation.
-	// We load config here first for the logger, then it's loaded again in the main flow.
-	// This is acceptable to ensure logging is immediately available.
 	tempCfg, err := config.Load()
 	if err != nil {
 		slog.Error("FATAL: Failed to load configuration for logger setup", "error", err)
@@ -80,7 +82,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// db.New now takes the main config struct directly.
 	storage, err := db.New(ctx, cfg)
 	if err != nil {
 		slog.Error("Failed to initialize database", "error", err)

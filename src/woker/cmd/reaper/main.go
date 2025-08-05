@@ -1,5 +1,3 @@
-// woker/cmd/reaper/main.go
-
 package main
 
 import (
@@ -8,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -15,10 +14,6 @@ import (
 	"worker/packages/db"
 
 	"gopkg.in/natefinch/lumberjack.v2"
-)
-
-const (
-	pendingCounterName = "pending_urls_count"
 )
 
 func setupLogger(cfg config.Config) {
@@ -34,11 +29,18 @@ func setupLogger(cfg config.Config) {
 		level = slog.LevelInfo
 	}
 
+	logDir := filepath.Dir(cfg.LogFile)
+	if err := os.MkdirAll(logDir, 0750); err != nil {
+		slog.New(slog.NewJSONHandler(os.Stderr, nil)).Error(
+			"Failed to create log directory", "path", logDir, "error", err,
+		)
+	}
+
 	logRotator := &lumberjack.Logger{
 		Filename:   cfg.LogFile,
-		MaxSize:    5, // megabytes
+		MaxSize:    5,
 		MaxBackups: 3,
-		MaxAge:     30, // days
+		MaxAge:     30,
 		Compress:   true,
 	}
 
@@ -103,15 +105,11 @@ func main() {
 		"orphan_job_check", "30m",
 	)
 
-	// --- Run startup tasks ---
 	go func() {
-		// NEW: Rehydrate Bloom Filter on startup. Use a background context
-		// so it can complete even if the main context is cancelled.
 		if err := storage.RehydrateBloomFilter(context.Background()); err != nil {
 			slog.Error("Bloom filter rehydration failed on startup", "error", err)
 		}
 
-		// Existing startup tasks
 		_ = storage.RefreshPendingURLCount(ctx)
 		_ = storage.RefreshNetlocCounts(ctx)
 		_ = storage.ResetStalledJobs(ctx)

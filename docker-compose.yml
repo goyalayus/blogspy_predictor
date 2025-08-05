@@ -4,32 +4,22 @@ services:
     container_name: python-api
     restart: unless-stopped
     ports: ["8000:8000"]
-    volumes:
-      - app-logs:/app/logs
+    volumes: ["./logs:/app/logs"]
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - LOG_FILE=/app/logs/python_api.log
       - LOG_LEVEL=${LOG_LEVEL}
     networks: [app-net]
     depends_on: { redis: { condition: service_healthy } }
-
-  # <<< CHANGE: NEW SERVICE TO BUILD THE GO IMAGE ONCE >>>
-  go-base:
-    # This service's only job is to build the image. It will not be run as a container.
-    image: blogspy-go-base:latest
+  
+  go-worker:
     build:
       context: ./src/woker
       dockerfile: Dockerfile
-
-  go-worker:
-    # <<< CHANGE: REMOVED the 'build' section. >>>
-    # <<< CHANGE: Now uses the image built by the 'go-base' service. >>>
-    image: blogspy-go-base:latest
     container_name: go-worker
     restart: unless-stopped
     command: ["/worker"]
-    volumes:
-      - app-logs:/app/logs
+    volumes: ["./logs:/app/logs"]
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - ML_API_URL=http://python-api:8000
@@ -37,21 +27,16 @@ services:
       - LOG_FILE=/app/logs/worker.log
       - LOG_LEVEL=${LOG_LEVEL}
     networks: [app-net]
-    depends_on:
-      # <<< CHANGE: Explicitly depend on the base build and other services >>>
-      - go-base
-      - python-api
-      - redis
+    depends_on: [python-api, redis]
 
   go-reaper:
-    # <<< CHANGE: REMOVED the 'build' section. >>>
-    # <<< CHANGE: Also uses the image built by the 'go-base' service. >>>
-    image: blogspy-go-base:latest
+    build:
+      context: ./src/woker
+      dockerfile: Dockerfile
     container_name: go-reaper
     restart: unless-stopped
     command: ["/reaper"]
-    volumes:
-      - app-logs:/app/logs
+    volumes: ["./logs:/app/logs"]
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_ADDR=redis:6379
@@ -59,11 +44,7 @@ services:
       - LOG_LEVEL=${LOG_LEVEL}
       - ML_API_URL=http://python-api:8000
     networks: [app-net]
-    depends_on:
-      # <<< CHANGE: Explicitly depend on the base build and other services >>>
-      - go-base
-      - redis
-      - opensearch-node
+    depends_on: [redis, opensearch-node]
 
   redis:
     image: redis/redis-stack-server:latest
@@ -108,7 +89,7 @@ services:
     command: ["--config", "/etc/vector/vector.toml"]
     volumes:
       - ./vector/vector.toml:/etc/vector/vector.toml:ro
-      - app-logs:/var/log/app:ro
+      - ./logs:/var/log/app:ro
     environment:
       - OPENSEARCH_USERNAME=admin
       - OPENSEARCH_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
@@ -118,7 +99,6 @@ services:
 volumes:
   opensearch-data:
   redis-data:
-  app-logs:
 
 networks:
   app-net:

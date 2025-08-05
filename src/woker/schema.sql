@@ -1,10 +1,3 @@
--- lib/db/schema.sql
-
--- Note: If you are applying this to an existing database, you will need to
--- use ALTER commands or drop the existing tables before running this script.
--- This script is intended as a complete definition for a new database.
-
--- ========= Base Types =========
 CREATE TYPE crawl_status AS ENUM (
     'pending_classification',
     'pending_crawl',
@@ -20,10 +13,6 @@ CREATE TYPE rendering_type AS ENUM (
     'CSR'
 );
 
-
--- ========= Tables =========
-
--- User Management
 CREATE TABLE "orange_users" (
     "id" serial PRIMARY KEY NOT NULL,
     "google_id" text NOT NULL,
@@ -48,7 +37,6 @@ CREATE TABLE "search_history" (
     "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Crawler and Content
 CREATE TABLE urls (
     id BIGSERIAL PRIMARY KEY,
     url TEXT NOT NULL UNIQUE,
