@@ -392,9 +392,9 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 			slog.Any("input", map[string]interface{}{
 				"raw_link_count": len(newLinksRaw),
 				"timings_ms": map[string]float64{
-					"total_db_read":      float64(totalDbReadDuration.Microseconds()) / 1000.0,
-					"get_netloc_counts":  float64(netlocDuration.Microseconds()) / 1000.0,
-					"get_existing_urls":  float64(existingDuration.Microseconds()) / 1000.0,
+					"total_db_read":        float64(totalDbReadDuration.Microseconds()) / 1000.0,
+					"get_netloc_counts":    float64(netlocDuration.Microseconds()) / 1000.0,
+					"get_existing_urls":    float64(existingDuration.Microseconds()) / 1000.0,
 					"get_domain_decisions": float64(decisionDuration.Microseconds()) / 1000.0,
 				},
 				"netloc_count_map_size":    len(netlocCounts),

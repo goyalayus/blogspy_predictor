@@ -1,13 +1,11 @@
 services:
-  # =======================================================
-  #  Application Services (no changes here)
-  # =======================================================
   python-api:
     build: { context: ., dockerfile: Dockerfile }
     container_name: python-api
     restart: unless-stopped
     ports: ["8000:8000"]
-    volumes: ["./logs:/app/logs"]
+    volumes:
+      - app-logs:/app/logs
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - LOG_FILE=/app/logs/python_api.log
@@ -15,12 +13,23 @@ services:
     networks: [app-net]
     depends_on: { redis: { condition: service_healthy } }
 
+  # <<< CHANGE: NEW SERVICE TO BUILD THE GO IMAGE ONCE >>>
+  go-base:
+    # This service's only job is to build the image. It will not be run as a container.
+    image: blogspy-go-base:latest
+    build:
+      context: ./src/woker
+      dockerfile: Dockerfile
+
   go-worker:
-    build: { context: ./src/woker, dockerfile: Dockerfile }
+    # <<< CHANGE: REMOVED the 'build' section. >>>
+    # <<< CHANGE: Now uses the image built by the 'go-base' service. >>>
+    image: blogspy-go-base:latest
     container_name: go-worker
     restart: unless-stopped
     command: ["/worker"]
-    volumes: ["./logs:/app/logs"]
+    volumes:
+      - app-logs:/app/logs
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - ML_API_URL=http://python-api:8000
@@ -28,14 +37,21 @@ services:
       - LOG_FILE=/app/logs/worker.log
       - LOG_LEVEL=${LOG_LEVEL}
     networks: [app-net]
-    depends_on: { python-api: { condition: service_started }, redis: { condition: service_healthy } }
+    depends_on:
+      # <<< CHANGE: Explicitly depend on the base build and other services >>>
+      - go-base
+      - python-api
+      - redis
 
   go-reaper:
-    build: { context: ./src/woker, dockerfile: Dockerfile }
+    # <<< CHANGE: REMOVED the 'build' section. >>>
+    # <<< CHANGE: Also uses the image built by the 'go-base' service. >>>
+    image: blogspy-go-base:latest
     container_name: go-reaper
     restart: unless-stopped
     command: ["/reaper"]
-    volumes: ["./logs:/app/logs"]
+    volumes:
+      - app-logs:/app/logs
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_ADDR=redis:6379
@@ -44,41 +60,32 @@ services:
       - ML_API_URL=http://python-api:8000
     networks: [app-net]
     depends_on:
-      redis: { condition: service_healthy }
-      opensearch-node: { condition: service_healthy }
+      # <<< CHANGE: Explicitly depend on the base build and other services >>>
+      - go-base
+      - redis
+      - opensearch-node
 
-  # =======================================================
-  #  Supporting Infrastructure (redis is unchanged)
-  # =======================================================
   redis:
-    # WRONG: image: redis:7-alpine
-    # CORRECT: Use the Redis Stack image which includes the Bloom module
-    image: redis/redis-stack-server:latest 
+    image: redis/redis-stack-server:latest
     container_name: redis
     restart: unless-stopped
     ports: ["6379:6379"]
     volumes: [redis-data:/data]
     networks: [app-net]
-    # The healthcheck for redis-stack is slightly different
     healthcheck: { test: ["CMD", "redis-cli", "-h", "localhost", "-p", "6379", "ping"], interval: 10s, timeout: 5s, retries: 5 }
 
-  # =======================================================
-  #  Log Management Stack (MAJOR CHANGES HERE)
-  # =======================================================
   opensearch-node:
-    image: opensearchproject/opensearch:2.15.0 # Back to the latest version
+    image: opensearchproject/opensearch:2.15.0
     container_name: opensearch-node
     restart: unless-stopped
     environment:
       - discovery.type=single-node
       - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
-      # This variable is read from the .env file to set the password on first boot
       - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
     volumes: [opensearch-data:/usr/share/opensearch/data]
     ports: ["9200:9200"]
     networks: [app-net]
     healthcheck:
-      # Secure healthcheck using the default admin user and the password from the .env file
       test: ["CMD-SHELL", "curl -sS --fail -k -u 'admin:${OPENSEARCH_INITIAL_ADMIN_PASSWORD}' https://localhost:9200/_cluster/health | grep -vq '\"status\":\"red\"'"]
       interval: 30s
       timeout: 10s
@@ -90,8 +97,7 @@ services:
     restart: unless-stopped
     ports: ["5601:5601"]
     environment:
-      OPENSEARCH_HOSTS: '["https://opensearch-node:9200"]' # Protocol changes to https
-      # We REMOVE the security disabled flag. It will default to enabled.
+      OPENSEARCH_HOSTS: '["https://opensearch-node:9200"]'
     networks: [app-net]
     depends_on: { opensearch-node: { condition: service_healthy } }
 
@@ -99,13 +105,11 @@ services:
     image: timberio/vector:0.36.0-debian
     container_name: vector-log-collector
     restart: unless-stopped
-    # ADD THIS COMMAND to tell Vector which config file to use
     command: ["--config", "/etc/vector/vector.toml"]
     volumes:
       - ./vector/vector.toml:/etc/vector/vector.toml:ro
-      - ./logs:/var/log/app:ro
+      - app-logs:/var/log/app:ro
     environment:
-      # Provide credentials to Vector so it can write to the secure OpenSearch
       - OPENSEARCH_USERNAME=admin
       - OPENSEARCH_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
     networks: [app-net]
@@ -114,6 +118,7 @@ services:
 volumes:
   opensearch-data:
   redis-data:
+  app-logs:
 
 networks:
   app-net:

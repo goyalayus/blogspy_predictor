@@ -231,7 +231,6 @@ func (s *Storage) RefreshNetlocCounts(ctx context.Context) error {
 	return nil
 }
 
-
 // Writer goroutines (statusWriter, contentWriter) are unchanged
 // ...
 func (s *Storage) statusWriter(ctx context.Context) {
@@ -431,7 +430,6 @@ func (s *Storage) processContentInserts(ctx context.Context, batch []domain.Cont
 		)
 	}
 }
-
 
 func (s *Storage) linkWriter(ctx context.Context) {
 	ticker := time.NewTicker(s.cfg.BatchWriteInterval)

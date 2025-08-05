@@ -99,8 +99,8 @@ func Load() (Config, error) {
 	cfg.RedisPassword = getEnv("REDIS_PASSWORD", "") // No password by default
 	cfg.RedisDB, _ = strconv.Atoi(getEnv("REDIS_DB", "0"))
 	cfg.BloomFilterKey = getEnv("BLOOM_FILTER_KEY", "blogspy:urls_bloom")
-	cfg.BloomFilterCapacity, _ = strconv.ParseInt(getEnv("BLOOM_FILTER_CAPACITY", "20000000"), 10, 64)   // Default: 20 million
-	cfg.BloomFilterErrorRate, _ = strconv.ParseFloat(getEnv("BLOOM_FILTER_ERROR_RATE", "0.0001"), 64) // Default: 1 in 10,000
+	cfg.BloomFilterCapacity, _ = strconv.ParseInt(getEnv("BLOOM_FILTER_CAPACITY", "20000000"), 10, 64) // Default: 20 million
+	cfg.BloomFilterErrorRate, _ = strconv.ParseFloat(getEnv("BLOOM_FILTER_ERROR_RATE", "0.0001"), 64)  // Default: 1 in 10,000
 
 	return cfg, nil
 }

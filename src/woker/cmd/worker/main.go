@@ -18,7 +18,6 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-
 func setupLogger(cfg config.Config) {
 	var level slog.Level
 	switch strings.ToLower(cfg.LogLevel) {
@@ -58,7 +57,6 @@ func setupLogger(cfg config.Config) {
 	logger := slog.New(handler)
 	slog.SetDefault(logger)
 }
-
 
 func main() {
 	// NOTE: Logger is configured before any other operation.

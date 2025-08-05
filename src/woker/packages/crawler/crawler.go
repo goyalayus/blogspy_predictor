@@ -25,7 +25,6 @@ func New(timeout time.Duration) *Crawler {
 	}
 }
 
-
 func (c *Crawler) FetchAndParseContent(ctx context.Context, rawURL string) (*domain.FetchedContent, error) {
 	slog.Debug("Starting content fetch and parse", "url", rawURL)
 	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
