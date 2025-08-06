@@ -24,22 +24,11 @@ WHERE
     status IN ('classifying'::crawl_status, 'crawling'::crawl_status)
     AND locked_at < NOW() - sqlc.arg('timeout_interval')::interval;
 
--- name: GetNetlocCounts :many
-SELECT netloc, url_count FROM netloc_counts
-WHERE netloc = ANY(@netlocs::text[]);
+-- DELETED: The 'GetNetlocCounts' query was here.
 
 -- name: GetExistingURLs :many
 SELECT url FROM urls
 WHERE url = ANY(@urls::text[]);
-
--- name: GetDomainDecisions :many
-SELECT DISTINCT ON (netloc) netloc, status
-FROM urls
-WHERE netloc = ANY(@netlocs::text[])
-  AND status IN (
-    'pending_crawl', 'crawling', 'completed', 'irrelevant',
-    'pending_classification', 'classifying'
-);
 
 -- QUERIES FOR THE REAPER AND THROTTLING MECHANISM
 
@@ -52,14 +41,7 @@ UPDATE system_counters SET value = $1, updated_at = NOW() WHERE counter_name = $
 -- name: CountPendingURLs :one
 SELECT count(*)::bigint FROM urls WHERE status IN ('pending_classification', 'pending_crawl');
 
--- name: RefreshNetlocCounts :exec
-INSERT INTO netloc_counts (netloc, url_count, updated_at)
-SELECT netloc, COUNT(id)::int, NOW()
-FROM urls
-GROUP BY netloc
-ON CONFLICT (netloc) DO UPDATE
-SET url_count = EXCLUDED.url_count,
-    updated_at = EXCLUDED.updated_at;
+-- DELETED: The 'RefreshNetlocCounts' query was here.
 
 -- MODIFIED: Rewritten to use a more robust NOT EXISTS pattern.
 -- This finds 'completed' jobs whose content was lost due to a crash.

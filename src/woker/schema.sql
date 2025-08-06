@@ -71,12 +71,7 @@ CREATE TABLE system_counters (
     updated_at TIMESTAMPTZ
 );
 
-CREATE TABLE netloc_counts (
-    netloc TEXT PRIMARY KEY,
-    url_count INT NOT NULL DEFAULT 0,
-    updated_at TIMESTAMPTZ NOT NULL
-);
-
+-- DELETED: The 'netloc_counts' table was here.
 
 -- ========= Foreign Keys =========
 ALTER TABLE "orange_sessions" ADD CONSTRAINT "orange_sessions_user_id_orange_users_id_fk" 
@@ -120,4 +115,3 @@ CREATE INDEX idx_url_content_search_vector ON url_content USING GIN(search_vecto
 
 -- ========= Initial Data =========
 INSERT INTO system_counters (counter_name) VALUES ('pending_urls_count');
-

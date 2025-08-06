@@ -20,16 +20,53 @@ import (
 const (
 	pendingURLCountLimit = 50000
 	pendingCounterName   = "pending_urls_count"
+	// NEW: The key for our Redis Hash of netloc counts.
+	netlocCountsKey = "blogspy:netloc_counts"
 )
+
+// NEW: This Lua script is the core of the atomic reservation system.
+// It guarantees that checking the limit and incrementing the count happen as a single,
+// uninterruptible operation, solving the race condition.
+const reserveNetlocSlotsLua = `
+-- KEYS[1]: The hash key for netloc counts (e.g., 'blogspy:netloc_counts')
+-- ARGV[1]: The netloc being checked (e.g., 'example.com')
+-- ARGV[2]: The maximum number of URLs allowed for this netloc (e.g., 130)
+-- ARGV[3...n]: The candidate URL strings to potentially accept
+
+local current_count = tonumber(redis.call('hget', KEYS[1], ARGV[1])) or 0
+local max_limit = tonumber(ARGV[2])
+local links_to_acquire_count = #ARGV - 2
+
+if current_count >= max_limit then
+  return {}
+end
+
+local available_slots = max_limit - current_count
+local accepted_count = math.min(available_slots, links_to_acquire_count)
+
+if accepted_count > 0 then
+  redis.call('hincrby', KEYS[1], ARGV[1], accepted_count)
+  
+  local result = {}
+  for i = 1, accepted_count do
+    table.insert(result, ARGV[i + 2])
+  end
+  return result
+end
+
+return {}
+`
 
 type Storage struct {
 	DB                 *pgxpool.Pool
 	Queries            *generated.Queries
-	RedisClient        *redis.Client // NEW: Redis client
+	RedisClient        *redis.Client
 	cfg                config.Config
 	linkQueue          chan domain.LinkBatch
 	statusUpdateQueue  chan domain.StatusUpdateResult
 	contentInsertQueue chan domain.ContentInsertResult
+	// NEW: We store a script object for efficiency, so Redis doesn't have to re-parse it every time.
+	reserveSlotsScript *redis.Script
 }
 
 func New(ctx context.Context, cfg config.Config) (*Storage, error) {
@@ -44,7 +81,7 @@ func New(ctx context.Context, cfg config.Config) (*Storage, error) {
 		return nil, fmt.Errorf("unable to create connection pool: %w", err)
 	}
 
-	// NEW: Connect to Redis
+	// Connect to Redis
 	redisOpts := &redis.Options{
 		Addr:     cfg.RedisAddr,
 		Password: cfg.RedisPassword,
@@ -59,11 +96,13 @@ func New(ctx context.Context, cfg config.Config) (*Storage, error) {
 	s := &Storage{
 		DB:                 db,
 		Queries:            generated.New(db),
-		RedisClient:        redisClient, // NEW: Assign client
+		RedisClient:        redisClient,
 		cfg:                cfg,
 		linkQueue:          make(chan domain.LinkBatch, cfg.BatchWriteQueueSize),
 		statusUpdateQueue:  make(chan domain.StatusUpdateResult, cfg.StatusUpdateQueueSize),
 		contentInsertQueue: make(chan domain.ContentInsertResult, cfg.ContentInsertQueueSize),
+		// NEW: Pre-load the Lua script into a script object.
+		reserveSlotsScript: redis.NewScript(reserveNetlocSlotsLua),
 	}
 
 	go s.linkWriter(ctx)
@@ -74,6 +113,107 @@ func New(ctx context.Context, cfg config.Config) (*Storage, error) {
 	return s, nil
 }
 
+// NEW: This function is called by the reaper on startup to populate the Redis Hash.
+func (s *Storage) RehydrateNetlocCounts(ctx context.Context) error {
+	slog.Info("Checking state of netloc counts in Redis...")
+	exists, err := s.RedisClient.Exists(ctx, netlocCountsKey).Result()
+	if err != nil {
+		return fmt.Errorf("failed to check if netloc counts key exists: %w", err)
+	}
+	if exists == 1 {
+		slog.Info("Netloc counts key already exists in Redis. Skipping rehydration.")
+		return nil
+	}
+
+	slog.Warn("Netloc counts not found in Redis. Starting rehydration from PostgreSQL. This may be slow.")
+	start := time.Now()
+
+	rows, err := s.DB.Query(ctx, `SELECT netloc, count(id) FROM urls GROUP BY netloc`)
+	if err != nil {
+		return fmt.Errorf("rehydration failed: could not query urls table: %w", err)
+	}
+	defer rows.Close()
+
+	// Use a pipeline for efficient bulk insertion into Redis.
+	pipe := s.RedisClient.Pipeline()
+	var rowsScanned int
+	for rows.Next() {
+		var netloc string
+		var count int
+		if err := rows.Scan(&netloc, &count); err != nil {
+			return fmt.Errorf("rehydration failed: could not scan row: %w", err)
+		}
+		pipe.HSet(ctx, netlocCountsKey, netloc, count)
+		rowsScanned++
+		// Execute pipeline in batches to avoid holding too much in memory.
+		if rowsScanned%10000 == 0 {
+			if _, err := pipe.Exec(ctx); err != nil {
+				return fmt.Errorf("rehydration failed: could not exec redis pipeline: %w", err)
+			}
+		}
+	}
+	if rows.Err() != nil {
+		return fmt.Errorf("rehydration failed: error during row iteration: %w", rows.Err())
+	}
+	// Execute any remaining commands in the pipeline.
+	if _, err := pipe.Exec(ctx); err != nil {
+		return fmt.Errorf("rehydration failed: could not exec final redis pipeline: %w", err)
+	}
+
+	duration := time.Since(start)
+	slog.Info("Netloc count rehydration complete.", "duration", duration, "netlocs_added", rowsScanned)
+	return nil
+}
+
+// NEW: This public method is what the worker will call. It encapsulates the Lua script execution.
+func (s *Storage) ReserveNetlocSlots(ctx context.Context, netloc string, candidateURLs []string) ([]string, error) {
+	if len(candidateURLs) == 0 {
+		return []string{}, nil
+	}
+
+	keys := []string{netlocCountsKey}
+	// Build arguments: ARGV[1] is netloc, ARGV[2] is max limit, ARGV[3..n] are the URLs.
+	args := make([]interface{}, 0, len(candidateURLs)+2)
+	args = append(args, netloc, s.cfg.MaxUrlsPerNetloc)
+	for _, u := range candidateURLs {
+		args = append(args, u)
+	}
+
+	res, err := s.reserveSlotsScript.Run(ctx, s.RedisClient, keys, args...).Result()
+	if err != nil {
+		// If the script is somehow not loaded, we can try loading it.
+		if strings.Contains(err.Error(), "NOSCRIPT") {
+			// This is a fallback, shouldn't happen often.
+			res, err = s.RedisClient.Eval(ctx, reserveNetlocSlotsLua, keys, args...).Result()
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to execute netloc reservation lua script: %w", err)
+		}
+	}
+
+	// The Lua script returns an array of interfaces, which we need to cast back to strings.
+	acceptedInterfaces, ok := res.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("unexpected type returned from lua script: %T", res)
+	}
+
+	acceptedURLs := make([]string, len(acceptedInterfaces))
+	for i, v := range acceptedInterfaces {
+		acceptedURLs[i], _ = v.(string)
+	}
+
+	return acceptedURLs, nil
+}
+
+// DELETED: RefreshNetlocCounts method is no longer needed.
+
+// --- The rest of the file (Close, WithTransaction, writer loops, etc.) remains largely unchanged ---
+// ... (code for Close, WithTransaction, linkWriter, statusWriter, etc. is here and unchanged) ...
+// ... except for the linkWriter logic which will be changed in worker.go ...
+// NOTE: I am omitting the unchanged code blocks for brevity, but they are still part of the file.
+// The key is that all other methods like ResetStalledJobs, RehydrateBloomFilter, etc. remain as they were.
+// The content of the processLinkBatches function now lives inside the worker's handleCrawlLogic,
+// so the linkWriter goroutine remains simple.
 func (s *Storage) Close() {
 	if s.linkQueue != nil {
 		close(s.linkQueue)
@@ -84,7 +224,6 @@ func (s *Storage) Close() {
 	if s.contentInsertQueue != nil {
 		close(s.contentInsertQueue)
 	}
-	// NEW: Close Redis client
 	if s.RedisClient != nil {
 		if err := s.RedisClient.Close(); err != nil {
 			slog.Error("Failed to close Redis client", "error", err)
@@ -116,7 +255,6 @@ func (s *Storage) WithTransaction(ctx context.Context, fn func(qtx *generated.Qu
 	return err
 }
 
-// Enqueue methods are unchanged
 func (s *Storage) EnqueueLinks(batch domain.LinkBatch) {
 	select {
 	case s.linkQueue <- batch:
@@ -141,8 +279,6 @@ func (s *Storage) EnqueueContentInsert(result domain.ContentInsertResult) {
 	}
 }
 
-// Reaper and Throttling Methods are mostly unchanged
-// ... (ResetStalledJobs, ResetOrphanedJobs, GetPendingURLCount, RefreshPendingURLCount, RefreshNetlocCounts are unchanged) ...
 func (s *Storage) ResetStalledJobs(ctx context.Context) error {
 	start := time.Now()
 	interval := pgtype.Interval{
@@ -214,25 +350,297 @@ func (s *Storage) RefreshPendingURLCount(ctx context.Context) error {
 	return nil
 }
 
-func (s *Storage) RefreshNetlocCounts(ctx context.Context) error {
+func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkBatch) {
 	start := time.Now()
-	err := s.Queries.RefreshNetlocCounts(ctx)
-	duration := time.Since(start)
+	count, err := s.GetPendingURLCount(ctx)
 	if err != nil {
-		slog.Error("Netloc counts refresh failed",
-			"event", slog.GroupValue(slog.String("name", "NETLOC_COUNTS_REFRESHED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(duration.Microseconds())/1000.0)),
-			"details", slog.GroupValue(slog.Any("error", err.Error())),
-		)
-		return err
+		slog.Error("Link Writer: Failed to get pending URL count for throttling check", "error", err)
+	} else if count >= pendingURLCountLimit {
+		slog.Warn("Link Writer: Throttling link ingestion, pending queue is full", "count", count, "limit", pendingURLCountLimit)
+		return
 	}
-	slog.Info("Netloc counts refresh completed",
-		"event", slog.GroupValue(slog.String("name", "NETLOC_COUNTS_REFRESHED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(duration.Microseconds())/1000.0)),
-	)
-	return nil
+
+	allCandidateLinks := make(map[string]domain.NewLink)
+	for _, batch := range batches {
+		for _, link := range batch.NewLinks {
+			allCandidateLinks[link.URL] = link
+		}
+	}
+	if len(allCandidateLinks) == 0 {
+		return
+	}
+
+	candidateURLStrings := make([]string, 0, len(allCandidateLinks))
+	for urlStr := range allCandidateLinks {
+		candidateURLStrings = append(candidateURLStrings, urlStr)
+	}
+
+
+	candidateURLInterfaces := make([]interface{}, len(candidateURLStrings))
+	for i, v := range candidateURLStrings {
+		candidateURLInterfaces[i] = v
+	}
+
+	existsResult, err := s.RedisClient.BFMExists(ctx, s.cfg.BloomFilterKey, candidateURLInterfaces...).Result()
+	if err != nil {
+		slog.Error("Bloom filter check failed, falling back to full DB check.", "error", err)
+	}
+
+	var urlsToCheckInDB []string
+	definitelyNewLinks := make(map[string]domain.NewLink)
+	var bloomHits int
+	if existsResult != nil {
+		for i, exists := range existsResult {
+			urlStr := candidateURLStrings[i]
+			if exists {
+				urlsToCheckInDB = append(urlsToCheckInDB, urlStr)
+				bloomHits++
+			} else {
+				definitelyNewLinks[urlStr] = allCandidateLinks[urlStr]
+			}
+		}
+	} else {
+		urlsToCheckInDB = candidateURLStrings
+	}
+	slog.Debug("Bloom filter check complete", "candidates", len(candidateURLStrings), "hits", bloomHits, "db_check_required", len(urlsToCheckInDB))
+
+
+	var newlyAddedURLs []string
+	err = s.WithTransaction(ctx, func(qtx *generated.Queries, tx pgx.Tx) error {
+		urlToIDMap := make(map[string]int64)
+		if len(urlsToCheckInDB) > 0 {
+			existingRows, err := tx.Query(ctx, `SELECT id, url FROM urls WHERE url = ANY($1)`, urlsToCheckInDB)
+			if err != nil {
+				return fmt.Errorf("failed to query for existing URLs: %w", err)
+			}
+			defer existingRows.Close() 
+			var idPtr int64
+			var urlPtr string
+			if _, err := pgx.ForEachRow(existingRows, []any{&idPtr, &urlPtr}, func() error {
+				urlToIDMap[urlPtr] = idPtr
+				return nil
+			}); err != nil {
+				return fmt.Errorf("failed to iterate existing URL rows: %w", err)
+			}
+		}
+
+		var newURLsToInsert []domain.NewLink
+		for _, link := range definitelyNewLinks {
+			newURLsToInsert = append(newURLsToInsert, link)
+		}
+		for _, urlStr := range urlsToCheckInDB {
+			if _, exists := urlToIDMap[urlStr]; !exists {
+				newURLsToInsert = append(newURLsToInsert, allCandidateLinks[urlStr])
+			}
+		}
+
+		if len(newURLsToInsert) > 0 {
+			sql := "INSERT INTO urls (url, netloc, status) VALUES "
+			var args []interface{}
+			paramIdx := 1
+			for i, link := range newURLsToInsert {
+				if i > 0 {
+					sql += ", "
+				}
+				sql += fmt.Sprintf("($%d, $%d, $%d)", paramIdx, paramIdx+1, paramIdx+2)
+				args = append(args, link.URL, link.Netloc, string(link.Status))
+				paramIdx += 3
+			}
+			sql += " RETURNING id, url"
+
+			insertedRows, err := tx.Query(ctx, sql, args...)
+			if err != nil {
+				return fmt.Errorf("failed to batch insert new urls: %w", err)
+			}
+			defer insertedRows.Close() 
+
+			var idPtr int64
+			var urlPtr string
+			if _, err := pgx.ForEachRow(insertedRows, []any{&idPtr, &urlPtr}, func() error {
+				urlToIDMap[urlPtr] = idPtr
+				newlyAddedURLs = append(newlyAddedURLs, urlPtr)
+				return nil
+			}); err != nil {
+				return fmt.Errorf("failed to iterate newly inserted URL rows: %w", err)
+			}
+		}
+
+		var edgeRows [][]any
+		for _, batch := range batches {
+			sourceURLID := batch.SourceURLID
+			for _, link := range batch.NewLinks {
+				if destID, ok := urlToIDMap[link.URL]; ok {
+					edgeRows = append(edgeRows, []any{sourceURLID, destID})
+				}
+			}
+		}
+
+		if len(edgeRows) > 0 {
+			_, err := tx.CopyFrom(ctx, pgx.Identifier{"url_edges"}, []string{"source_url_id", "dest_url_id"}, pgx.CopyFromRows(edgeRows))
+			if err != nil && !strings.Contains(err.Error(), "23505") {
+				return fmt.Errorf("failed to bulk insert edges: %w", err)
+			}
+		}
+		return nil
+	})
+	duration := time.Since(start)
+
+	if err != nil {
+		slog.Error("DB batch write failed",
+			"event", slog.GroupValue(slog.String("name", "DB_BATCH_WRITE_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(duration.Microseconds())/1000.0)),
+			"details", slog.GroupValue(
+				slog.Any("input", map[string]interface{}{"writer_type": "link_writer", "batch_size": len(allCandidateLinks)}),
+				slog.Any("output", map[string]interface{}{"error": err.Error()}),
+			),
+		)
+	} else {
+		slog.Info("DB batch write completed",
+			"event", slog.GroupValue(slog.String("name", "DB_BATCH_WRITE_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(duration.Microseconds())/1000.0)),
+			"details", slog.GroupValue(
+				slog.Any("input", map[string]interface{}{"writer_type": "link_writer", "candidates": len(allCandidateLinks), "new_urls_added": len(newlyAddedURLs)}),
+			),
+		)
+	}
+
+	if len(newlyAddedURLs) > 0 {
+		newlyAddedInterfaces := make([]interface{}, len(newlyAddedURLs))
+		for i, v := range newlyAddedURLs {
+			newlyAddedInterfaces[i] = v
+		}
+
+		if _, err := s.RedisClient.BFMAdd(ctx, s.cfg.BloomFilterKey, newlyAddedInterfaces...).Result(); err != nil {
+			slog.Error("Failed to add new URLs to Bloom filter", "error", err, "count", len(newlyAddedURLs))
+		} else {
+			slog.Debug("Added new URLs to Bloom filter", "count", len(newlyAddedURLs))
+		}
+	}
 }
 
-// Writer goroutines (statusWriter, contentWriter) are unchanged
-// ...
+func (s *Storage) linkWriter(ctx context.Context) {
+	ticker := time.NewTicker(s.cfg.BatchWriteInterval)
+	defer ticker.Stop()
+	var batches []domain.LinkBatch
+
+	for {
+		select {
+		case <-ctx.Done():
+			if len(batches) > 0 {
+				slog.Info("Link Writer: Final write on shutdown...")
+				s.processLinkBatches(context.Background(), batches)
+			}
+			slog.Info("Link Writer: Shutdown.")
+			return
+		case batch, ok := <-s.linkQueue:
+			if !ok {
+				if len(batches) > 0 {
+					s.processLinkBatches(context.Background(), batches)
+				}
+				slog.Info("Link Writer: Link queue closed, exiting.")
+				return
+			}
+			batches = append(batches, batch)
+		case <-ticker.C:
+			if len(batches) > 0 {
+				s.processLinkBatches(ctx, batches)
+				batches = nil
+			}
+		}
+	}
+}
+func (s *Storage) LockJobs(ctx context.Context, fromStatus, toStatus generated.CrawlStatus, limit int32) ([]generated.LockJobsForUpdateRow, error) {
+	var jobs []generated.LockJobsForUpdateRow
+
+	err := s.WithTransaction(ctx, func(qtx *generated.Queries, tx pgx.Tx) error {
+		var err error
+		jobs, err = qtx.LockJobsForUpdate(ctx, generated.LockJobsForUpdateParams{
+			Status: fromStatus,
+			Limit:  limit,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to lock jobs: %w", err)
+		}
+		if len(jobs) == 0 {
+			return nil
+		}
+
+		jobIDs := make([]int64, len(jobs))
+		for i, job := range jobs {
+			jobIDs[i] = job.ID
+		}
+
+		return qtx.UpdateJobStatusToInProgress(ctx, generated.UpdateJobStatusToInProgressParams{
+			Status: toStatus,
+			JobIds: jobIDs,
+		})
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return jobs, nil
+}
+func (s *Storage) RehydrateBloomFilter(ctx context.Context) error {
+	slog.Info("Checking state of Bloom filter...")
+	exists, err := s.RedisClient.Exists(ctx, s.cfg.BloomFilterKey).Result()
+	if err != nil {
+		return fmt.Errorf("failed to check if bloom filter exists: %w", err)
+	}
+	if exists == 1 {
+		slog.Info("Bloom filter already exists. Skipping rehydration.")
+		return nil
+	}
+
+	slog.Warn("Bloom filter not found. Starting rehydration process. This may take a while...")
+
+	_, err = s.RedisClient.BFReserve(ctx, s.cfg.BloomFilterKey, s.cfg.BloomFilterErrorRate, s.cfg.BloomFilterCapacity).Result()
+	if err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "item exists") {
+			return fmt.Errorf("failed to reserve bloom filter in redis: %w", err)
+		}
+		slog.Info("Bloom filter was created by another process. Skipping rehydration.")
+		return nil
+	}
+
+	var totalAdded int64
+	batchSize := 50000
+	offset := 0
+
+	for {
+		select {
+		case <-ctx.Done():
+			return errors.New("bloom filter rehydration cancelled")
+		default:
+			slog.Info("Fetching URL batch from database for rehydration...", "offset", offset, "batch_size", batchSize)
+			rows, err := s.DB.Query(ctx, `SELECT url FROM urls LIMIT $1 OFFSET $2`, batchSize, offset)
+			if err != nil {
+				return fmt.Errorf("rehydration failed: could not query urls table: %w", err)
+			}
+
+			var urlBatch []interface{}
+			var url string
+			if _, err := pgx.ForEachRow(rows, []any{&url}, func() error {
+				urlBatch = append(urlBatch, url)
+				return nil
+			}); err != nil {
+				return fmt.Errorf("rehydration failed: could not scan url row: %w", err)
+			}
+
+			if len(urlBatch) == 0 {
+				slog.Info("Bloom filter rehydration complete.", "total_urls_added", totalAdded)
+				return nil // No more rows
+			}
+
+			if _, err := s.RedisClient.BFMAdd(ctx, s.cfg.BloomFilterKey, urlBatch...).Result(); err != nil {
+				return fmt.Errorf("rehydration failed: could not add batch to filter: %w", err)
+			}
+
+			totalAdded += int64(len(urlBatch))
+			slog.Info("Added batch to Bloom filter", "batch_size", len(urlBatch), "total_added", totalAdded)
+			offset += batchSize
+		}
+	}
+}
 func (s *Storage) statusWriter(ctx context.Context) {
 	ticker := time.NewTicker(s.cfg.StatusUpdateInterval)
 	defer ticker.Stop()
@@ -428,330 +836,5 @@ func (s *Storage) processContentInserts(ctx context.Context, batch []domain.Cont
 				slog.Any("input", map[string]interface{}{"writer_type": "content_writer", "batch_size": len(batch)}),
 			),
 		)
-	}
-}
-
-func (s *Storage) linkWriter(ctx context.Context) {
-	ticker := time.NewTicker(s.cfg.BatchWriteInterval)
-	defer ticker.Stop()
-	var batches []domain.LinkBatch
-
-	for {
-		select {
-		case <-ctx.Done():
-			if len(batches) > 0 {
-				slog.Info("Link Writer: Final write on shutdown...")
-				s.processLinkBatches(context.Background(), batches)
-			}
-			slog.Info("Link Writer: Shutdown.")
-			return
-		case batch, ok := <-s.linkQueue:
-			if !ok {
-				if len(batches) > 0 {
-					s.processLinkBatches(context.Background(), batches)
-				}
-				slog.Info("Link Writer: Link queue closed, exiting.")
-				return
-			}
-			batches = append(batches, batch)
-		case <-ticker.C:
-			if len(batches) > 0 {
-				s.processLinkBatches(ctx, batches)
-				batches = nil
-			}
-		}
-	}
-}
-
-// =================================================================================
-// REWRITTEN: processLinkBatches now uses a Bloom Filter
-// =================================================================================
-// =================================================================================
-// REWRITTEN: processLinkBatches now uses a Bloom Filter
-// =================================================================================
-func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkBatch) {
-	start := time.Now()
-	count, err := s.GetPendingURLCount(ctx)
-	if err != nil {
-		slog.Error("Link Writer: Failed to get pending URL count for throttling check", "error", err)
-	} else if count >= pendingURLCountLimit {
-		slog.Warn("Link Writer: Throttling link ingestion, pending queue is full", "count", count, "limit", pendingURLCountLimit)
-		return
-	}
-
-	allCandidateLinks := make(map[string]domain.NewLink)
-	for _, batch := range batches {
-		for _, link := range batch.NewLinks {
-			allCandidateLinks[link.URL] = link
-		}
-	}
-	if len(allCandidateLinks) == 0 {
-		return
-	}
-
-	candidateURLStrings := make([]string, 0, len(allCandidateLinks))
-	for urlStr := range allCandidateLinks {
-		candidateURLStrings = append(candidateURLStrings, urlStr)
-	}
-
-	// ======================== START OF CORRECTED SEGMENT ========================
-
-	// Step 1: Prepare arguments and check existence in Bloom Filter
-	// CORRECTION: Convert []string to []interface{} for the variadic function.
-	candidateURLInterfaces := make([]interface{}, len(candidateURLStrings))
-	for i, v := range candidateURLStrings {
-		candidateURLInterfaces[i] = v
-	}
-
-	existsResult, err := s.RedisClient.BFMExists(ctx, s.cfg.BloomFilterKey, candidateURLInterfaces...).Result()
-	if err != nil {
-		// If bloom filter fails, fallback to old behavior to avoid data loss
-		slog.Error("Bloom filter check failed, falling back to full DB check.", "error", err)
-		// For this implementation, we will proceed assuming the DB will catch duplicates.
-	}
-
-	// Step 2: Partition URLs based on Bloom Filter results
-	var urlsToCheckInDB []string
-	definitelyNewLinks := make(map[string]domain.NewLink)
-	var bloomHits int
-	if existsResult != nil {
-		// CORRECTION: The result is a []bool, so we check for `true`, not `1`.
-		for i, exists := range existsResult {
-			urlStr := candidateURLStrings[i]
-			if exists {
-				urlsToCheckInDB = append(urlsToCheckInDB, urlStr)
-				bloomHits++
-			} else {
-				definitelyNewLinks[urlStr] = allCandidateLinks[urlStr]
-			}
-		}
-	} else {
-		// Fallback case if Redis call failed: check all URLs in the DB
-		urlsToCheckInDB = candidateURLStrings
-	}
-	slog.Debug("Bloom filter check complete", "candidates", len(candidateURLStrings), "hits", bloomHits, "db_check_required", len(urlsToCheckInDB))
-
-	// ========================= END OF CORRECTED SEGMENT =========================
-
-	// Step 3: The actual processing within a transaction
-	var newlyAddedURLs []string
-	err = s.WithTransaction(ctx, func(qtx *generated.Queries, tx pgx.Tx) error {
-		// Step 3a: Check the "might exist" URLs against the database
-		urlToIDMap := make(map[string]int64)
-		if len(urlsToCheckInDB) > 0 {
-			existingRows, err := tx.Query(ctx, `SELECT id, url FROM urls WHERE url = ANY($1)`, urlsToCheckInDB)
-			if err != nil {
-				return fmt.Errorf("failed to query for existing URLs: %w", err)
-			}
-			defer existingRows.Close() // Ensure rows are closed
-			var idPtr int64
-			var urlPtr string
-			if _, err := pgx.ForEachRow(existingRows, []any{&idPtr, &urlPtr}, func() error {
-				urlToIDMap[urlPtr] = idPtr
-				return nil
-			}); err != nil {
-				return fmt.Errorf("failed to iterate existing URL rows: %w", err)
-			}
-		}
-
-		// Step 3b: Consolidate all truly new URLs
-		var newURLsToInsert []domain.NewLink
-		// Add URLs that were definitely new from the bloom filter
-		for _, link := range definitelyNewLinks {
-			newURLsToInsert = append(newURLsToInsert, link)
-		}
-		// Add URLs that the bloom filter hit on, but were not in the DB (false positives)
-		for _, urlStr := range urlsToCheckInDB {
-			if _, exists := urlToIDMap[urlStr]; !exists {
-				newURLsToInsert = append(newURLsToInsert, allCandidateLinks[urlStr])
-			}
-		}
-
-		// Step 3c: Insert the new URLs
-		if len(newURLsToInsert) > 0 {
-			sql := "INSERT INTO urls (url, netloc, status) VALUES "
-			var args []interface{}
-			paramIdx := 1
-			for i, link := range newURLsToInsert {
-				if i > 0 {
-					sql += ", "
-				}
-				sql += fmt.Sprintf("($%d, $%d, $%d)", paramIdx, paramIdx+1, paramIdx+2)
-				args = append(args, link.URL, link.Netloc, string(link.Status))
-				paramIdx += 3
-			}
-			sql += " RETURNING id, url"
-
-			insertedRows, err := tx.Query(ctx, sql, args...)
-			if err != nil {
-				return fmt.Errorf("failed to batch insert new urls: %w", err)
-			}
-			defer insertedRows.Close() // Ensure rows are closed
-
-			// Add newly inserted URLs to our map and a slice for bloom filter update
-			var idPtr int64
-			var urlPtr string
-			if _, err := pgx.ForEachRow(insertedRows, []any{&idPtr, &urlPtr}, func() error {
-				urlToIDMap[urlPtr] = idPtr
-				newlyAddedURLs = append(newlyAddedURLs, urlPtr)
-				return nil
-			}); err != nil {
-				return fmt.Errorf("failed to iterate newly inserted URL rows: %w", err)
-			}
-		}
-
-		// Step 3d: Insert edges (existing logic)
-		var edgeRows [][]any
-		for _, batch := range batches {
-			sourceURLID := batch.SourceURLID
-			for _, link := range batch.NewLinks {
-				if destID, ok := urlToIDMap[link.URL]; ok {
-					edgeRows = append(edgeRows, []any{sourceURLID, destID})
-				}
-			}
-		}
-
-		if len(edgeRows) > 0 {
-			_, err := tx.CopyFrom(ctx, pgx.Identifier{"url_edges"}, []string{"source_url_id", "dest_url_id"}, pgx.CopyFromRows(edgeRows))
-			if err != nil && !strings.Contains(err.Error(), "23505") {
-				return fmt.Errorf("failed to bulk insert edges: %w", err)
-			}
-		}
-		return nil
-	})
-	duration := time.Since(start)
-
-	if err != nil {
-		slog.Error("DB batch write failed",
-			"event", slog.GroupValue(slog.String("name", "DB_BATCH_WRITE_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(duration.Microseconds())/1000.0)),
-			"details", slog.GroupValue(
-				slog.Any("input", map[string]interface{}{"writer_type": "link_writer", "batch_size": len(allCandidateLinks)}),
-				slog.Any("output", map[string]interface{}{"error": err.Error()}),
-			),
-		)
-	} else {
-		slog.Info("DB batch write completed",
-			"event", slog.GroupValue(slog.String("name", "DB_BATCH_WRITE_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(duration.Microseconds())/1000.0)),
-			"details", slog.GroupValue(
-				slog.Any("input", map[string]interface{}{"writer_type": "link_writer", "candidates": len(allCandidateLinks), "new_urls_added": len(newlyAddedURLs)}),
-			),
-		)
-	}
-
-	// Step 4: Update the Bloom Filter with newly added URLs
-	if len(newlyAddedURLs) > 0 {
-		// Interface slice conversion
-		newlyAddedInterfaces := make([]interface{}, len(newlyAddedURLs))
-		for i, v := range newlyAddedURLs {
-			newlyAddedInterfaces[i] = v
-		}
-
-		if _, err := s.RedisClient.BFMAdd(ctx, s.cfg.BloomFilterKey, newlyAddedInterfaces...).Result(); err != nil {
-			slog.Error("Failed to add new URLs to Bloom filter", "error", err, "count", len(newlyAddedURLs))
-		} else {
-			slog.Debug("Added new URLs to Bloom filter", "count", len(newlyAddedURLs))
-		}
-	}
-}
-
-func (s *Storage) LockJobs(ctx context.Context, fromStatus, toStatus generated.CrawlStatus, limit int32) ([]generated.LockJobsForUpdateRow, error) {
-	var jobs []generated.LockJobsForUpdateRow
-
-	err := s.WithTransaction(ctx, func(qtx *generated.Queries, tx pgx.Tx) error {
-		var err error
-		jobs, err = qtx.LockJobsForUpdate(ctx, generated.LockJobsForUpdateParams{
-			Status: fromStatus,
-			Limit:  limit,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to lock jobs: %w", err)
-		}
-		if len(jobs) == 0 {
-			return nil
-		}
-
-		jobIDs := make([]int64, len(jobs))
-		for i, job := range jobs {
-			jobIDs[i] = job.ID
-		}
-
-		return qtx.UpdateJobStatusToInProgress(ctx, generated.UpdateJobStatusToInProgressParams{
-			Status: toStatus,
-			JobIds: jobIDs,
-		})
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	return jobs, nil
-}
-
-// =================================================================================
-// NEW: RehydrateBloomFilter for the reaper to build the filter on startup
-// =================================================================================
-func (s *Storage) RehydrateBloomFilter(ctx context.Context) error {
-	slog.Info("Checking state of Bloom filter...")
-	exists, err := s.RedisClient.Exists(ctx, s.cfg.BloomFilterKey).Result()
-	if err != nil {
-		return fmt.Errorf("failed to check if bloom filter exists: %w", err)
-	}
-	if exists == 1 {
-		slog.Info("Bloom filter already exists. Skipping rehydration.")
-		return nil
-	}
-
-	slog.Warn("Bloom filter not found. Starting rehydration process. This may take a while...")
-
-	// Create (Reserve) the filter first. This is a critical step.
-	_, err = s.RedisClient.BFReserve(ctx, s.cfg.BloomFilterKey, s.cfg.BloomFilterErrorRate, s.cfg.BloomFilterCapacity).Result()
-	if err != nil {
-		// It might error if another process created it in the meantime.
-		if !strings.Contains(strings.ToLower(err.Error()), "item exists") {
-			return fmt.Errorf("failed to reserve bloom filter in redis: %w", err)
-		}
-		slog.Info("Bloom filter was created by another process. Skipping rehydration.")
-		return nil
-	}
-
-	var totalAdded int64
-	batchSize := 50000
-	offset := 0
-
-	for {
-		select {
-		case <-ctx.Done():
-			return errors.New("bloom filter rehydration cancelled")
-		default:
-			slog.Info("Fetching URL batch from database for rehydration...", "offset", offset, "batch_size", batchSize)
-			rows, err := s.DB.Query(ctx, `SELECT url FROM urls LIMIT $1 OFFSET $2`, batchSize, offset)
-			if err != nil {
-				return fmt.Errorf("rehydration failed: could not query urls table: %w", err)
-			}
-
-			var urlBatch []interface{}
-			var url string
-			if _, err := pgx.ForEachRow(rows, []any{&url}, func() error {
-				urlBatch = append(urlBatch, url)
-				return nil
-			}); err != nil {
-				return fmt.Errorf("rehydration failed: could not scan url row: %w", err)
-			}
-
-			if len(urlBatch) == 0 {
-				slog.Info("Bloom filter rehydration complete.", "total_urls_added", totalAdded)
-				return nil // No more rows
-			}
-
-			// Add the batch to the filter
-			if _, err := s.RedisClient.BFMAdd(ctx, s.cfg.BloomFilterKey, urlBatch...).Result(); err != nil {
-				return fmt.Errorf("rehydration failed: could not add batch to filter: %w", err)
-			}
-
-			totalAdded += int64(len(urlBatch))
-			slog.Info("Added batch to Bloom filter", "batch_size", len(urlBatch), "total_added", totalAdded)
-			offset += batchSize
-		}
 	}
 }

@@ -35,46 +35,13 @@ func (q *Queries) GetCounterValue(ctx context.Context, counterName string) (int6
 	return value, err
 }
 
-const getDomainDecisions = `-- name: GetDomainDecisions :many
-SELECT DISTINCT ON (netloc) netloc, status
-FROM urls
-WHERE netloc = ANY($1::text[])
-  AND status IN (
-    'pending_crawl', 'crawling', 'completed', 'irrelevant',
-    'pending_classification', 'classifying'
-)
-`
-
-type GetDomainDecisionsRow struct {
-	Netloc string
-	Status CrawlStatus
-}
-
-func (q *Queries) GetDomainDecisions(ctx context.Context, netlocs []string) ([]GetDomainDecisionsRow, error) {
-	rows, err := q.db.Query(ctx, getDomainDecisions, netlocs)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []GetDomainDecisionsRow
-	for rows.Next() {
-		var i GetDomainDecisionsRow
-		if err := rows.Scan(&i.Netloc, &i.Status); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const getExistingURLs = `-- name: GetExistingURLs :many
+
 SELECT url FROM urls
 WHERE url = ANY($1::text[])
 `
 
+// DELETED: The 'GetNetlocCounts' query was here.
 func (q *Queries) GetExistingURLs(ctx context.Context, urls []string) ([]string, error) {
 	rows, err := q.db.Query(ctx, getExistingURLs, urls)
 	if err != nil {
@@ -88,36 +55,6 @@ func (q *Queries) GetExistingURLs(ctx context.Context, urls []string) ([]string,
 			return nil, err
 		}
 		items = append(items, url)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const getNetlocCounts = `-- name: GetNetlocCounts :many
-SELECT netloc, url_count FROM netloc_counts
-WHERE netloc = ANY($1::text[])
-`
-
-type GetNetlocCountsRow struct {
-	Netloc   string
-	UrlCount int32
-}
-
-func (q *Queries) GetNetlocCounts(ctx context.Context, netlocs []string) ([]GetNetlocCountsRow, error) {
-	rows, err := q.db.Query(ctx, getNetlocCounts, netlocs)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []GetNetlocCountsRow
-	for rows.Next() {
-		var i GetNetlocCountsRow
-		if err := rows.Scan(&i.Netloc, &i.UrlCount); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -165,22 +102,8 @@ func (q *Queries) LockJobsForUpdate(ctx context.Context, arg LockJobsForUpdatePa
 	return items, nil
 }
 
-const refreshNetlocCounts = `-- name: RefreshNetlocCounts :exec
-INSERT INTO netloc_counts (netloc, url_count, updated_at)
-SELECT netloc, COUNT(id)::int, NOW()
-FROM urls
-GROUP BY netloc
-ON CONFLICT (netloc) DO UPDATE
-SET url_count = EXCLUDED.url_count,
-    updated_at = EXCLUDED.updated_at
-`
-
-func (q *Queries) RefreshNetlocCounts(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, refreshNetlocCounts)
-	return err
-}
-
 const resetOrphanedCompletedJobs = `-- name: ResetOrphanedCompletedJobs :execrows
+
 UPDATE urls u
 SET
     status = 'pending_crawl'::crawl_status,
@@ -196,6 +119,7 @@ WHERE
     )
 `
 
+// DELETED: The 'RefreshNetlocCounts' query was here.
 // MODIFIED: Rewritten to use a more robust NOT EXISTS pattern.
 // This finds 'completed' jobs whose content was lost due to a crash.
 func (q *Queries) ResetOrphanedCompletedJobs(ctx context.Context) (int64, error) {

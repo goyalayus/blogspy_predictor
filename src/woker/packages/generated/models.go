@@ -100,10 +100,26 @@ func (ns NullRenderingType) Value() (driver.Value, error) {
 	return string(ns.RenderingType), nil
 }
 
-type NetlocCount struct {
-	Netloc    string
-	UrlCount  int32
-	UpdatedAt pgtype.Timestamptz
+type OrangeSession struct {
+	ID        string
+	UserID    int32
+	ExpiresAt pgtype.Timestamptz
+}
+
+type OrangeUser struct {
+	ID       int32
+	GoogleID string
+	Email    string
+	Name     string
+	Picture  string
+}
+
+type SearchHistory struct {
+	ID        int64
+	UserID    pgtype.Int4
+	IpAddress pgtype.Text
+	Query     string
+	CreatedAt pgtype.Timestamptz
 }
 
 type SystemCounter struct {
@@ -125,10 +141,11 @@ type Url struct {
 }
 
 type UrlContent struct {
-	UrlID       int64
-	Title       pgtype.Text
-	Description pgtype.Text
-	Content     pgtype.Text
+	UrlID        int64
+	Title        pgtype.Text
+	Description  pgtype.Text
+	Content      pgtype.Text
+	SearchVector interface{}
 }
 
 type UrlEdge struct {
