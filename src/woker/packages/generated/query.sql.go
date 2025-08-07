@@ -22,77 +22,15 @@ func (q *Queries) CountPendingURLs(ctx context.Context) (int64, error) {
 	return column_1, err
 }
 
-const deleteClassificationJobs = `-- name: DeleteClassificationJobs :exec
-DELETE FROM classification_queue
-WHERE id = ANY($1::bigint[])
-`
-
-func (q *Queries) DeleteClassificationJobs(ctx context.Context, jobIds []int64) error {
-	_, err := q.db.Exec(ctx, deleteClassificationJobs, jobIds)
-	return err
-}
-
-const enqueueClassificationJob = `-- name: EnqueueClassificationJob :one
-INSERT INTO classification_queue (url_id, payload)
-VALUES ($1, $2)
-RETURNING id
-`
-
-type EnqueueClassificationJobParams struct {
-	UrlID   int64
-	Payload []byte
-}
-
-func (q *Queries) EnqueueClassificationJob(ctx context.Context, arg EnqueueClassificationJobParams) (int64, error) {
-	row := q.db.QueryRow(ctx, enqueueClassificationJob, arg.UrlID, arg.Payload)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
-}
-
 const getCounterValue = `-- name: GetCounterValue :one
-
 SELECT value FROM system_counters WHERE counter_name = $1
 `
 
-// QUERIES FOR THE REAPER AND THROTTLING MECHANISM
 func (q *Queries) GetCounterValue(ctx context.Context, counterName string) (int64, error) {
 	row := q.db.QueryRow(ctx, getCounterValue, counterName)
 	var value int64
 	err := row.Scan(&value)
 	return value, err
-}
-
-const getDomainDecisions = `-- name: GetDomainDecisions :many
-SELECT DISTINCT ON (netloc) netloc, status
-FROM urls
-WHERE netloc = ANY($1::text[])
-  AND status IN ('pending_crawl', 'crawling', 'completed', 'irrelevant')
-`
-
-type GetDomainDecisionsRow struct {
-	Netloc string
-	Status CrawlStatus
-}
-
-func (q *Queries) GetDomainDecisions(ctx context.Context, netlocs []string) ([]GetDomainDecisionsRow, error) {
-	rows, err := q.db.Query(ctx, getDomainDecisions, netlocs)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []GetDomainDecisionsRow
-	for rows.Next() {
-		var i GetDomainDecisionsRow
-		if err := rows.Scan(&i.Netloc, &i.Status); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const getExistingURLs = `-- name: GetExistingURLs :many
@@ -120,76 +58,15 @@ func (q *Queries) GetExistingURLs(ctx context.Context, urls []string) ([]string,
 	return items, nil
 }
 
-const getNetlocCounts = `-- name: GetNetlocCounts :many
-SELECT netloc, url_count FROM netloc_counts
-WHERE netloc = ANY($1::text[])
+const getTotalURLCount = `-- name: GetTotalURLCount :one
+SELECT count(*)::bigint FROM urls
 `
 
-type GetNetlocCountsRow struct {
-	Netloc   string
-	UrlCount int32
-}
-
-func (q *Queries) GetNetlocCounts(ctx context.Context, netlocs []string) ([]GetNetlocCountsRow, error) {
-	rows, err := q.db.Query(ctx, getNetlocCounts, netlocs)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []GetNetlocCountsRow
-	for rows.Next() {
-		var i GetNetlocCountsRow
-		if err := rows.Scan(&i.Netloc, &i.UrlCount); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const lockAndFetchClassificationJobs = `-- name: LockAndFetchClassificationJobs :many
-WITH locked_jobs AS (
-    SELECT id
-    FROM classification_queue
-    WHERE status = 'new'
-    ORDER BY id
-    FOR UPDATE SKIP LOCKED
-    LIMIT $1
-)
-UPDATE classification_queue q
-SET status = 'processing', locked_at = NOW()
-FROM locked_jobs lj
-WHERE q.id = lj.id
-RETURNING q.id, q.url_id, q.payload
-`
-
-type LockAndFetchClassificationJobsRow struct {
-	ID      int64
-	UrlID   int64
-	Payload []byte
-}
-
-func (q *Queries) LockAndFetchClassificationJobs(ctx context.Context, limit int32) ([]LockAndFetchClassificationJobsRow, error) {
-	rows, err := q.db.Query(ctx, lockAndFetchClassificationJobs, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []LockAndFetchClassificationJobsRow
-	for rows.Next() {
-		var i LockAndFetchClassificationJobsRow
-		if err := rows.Scan(&i.ID, &i.UrlID, &i.Payload); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+func (q *Queries) GetTotalURLCount(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, getTotalURLCount)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const lockJobsForUpdate = `-- name: LockJobsForUpdate :many
@@ -229,22 +106,8 @@ func (q *Queries) LockJobsForUpdate(ctx context.Context, arg LockJobsForUpdatePa
 	return items, nil
 }
 
-const refreshNetlocCounts = `-- name: RefreshNetlocCounts :exec
-INSERT INTO netloc_counts (netloc, url_count, updated_at)
-SELECT netloc, COUNT(id)::int, NOW()
-FROM urls
-GROUP BY netloc
-ON CONFLICT (netloc) DO UPDATE
-SET url_count = EXCLUDED.url_count,
-    updated_at = EXCLUDED.updated_at
-`
-
-func (q *Queries) RefreshNetlocCounts(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, refreshNetlocCounts)
-	return err
-}
-
 const resetOrphanedCompletedJobs = `-- name: ResetOrphanedCompletedJobs :execrows
+
 UPDATE urls u
 SET
     status = 'pending_crawl'::crawl_status,
@@ -260,25 +123,13 @@ WHERE
     )
 `
 
-// MODIFIED: Rewritten to use a more robust NOT EXISTS pattern.
-// This finds 'completed' jobs whose content was lost due to a crash.
+// DELETED: The 'RefreshNetlocCounts' query was here.
 func (q *Queries) ResetOrphanedCompletedJobs(ctx context.Context) (int64, error) {
 	result, err := q.db.Exec(ctx, resetOrphanedCompletedJobs)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
-}
-
-const resetStalledClassificationJobs = `-- name: ResetStalledClassificationJobs :exec
-UPDATE classification_queue
-SET status = 'new', locked_at = NULL
-WHERE status = 'processing' AND locked_at < NOW() - $1::interval
-`
-
-func (q *Queries) ResetStalledClassificationJobs(ctx context.Context, timeout pgtype.Interval) error {
-	_, err := q.db.Exec(ctx, resetStalledClassificationJobs, timeout)
-	return err
 }
 
 const resetStalledJobs = `-- name: ResetStalledJobs :exec

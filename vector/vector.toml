@@ -1,0 +1,67 @@
+[sources.python_api_logs]
+  type = "file"
+  include = ["/var/log/app/python_api.log"]
+
+[sources.go_worker_logs]
+  type = "file"
+  include = ["/var/log/app/worker.log"]
+
+[sources.go_reaper_logs]
+  type = "file"
+  include = ["/var/log/app/reaper.log"]
+
+
+
+[transforms.parse_python_api]
+  type = "remap"
+  inputs = ["python_api_logs"]
+  source = '''
+    . = merge!(parse_json!(.message), .)
+    del(.message)
+  '''
+
+[transforms.parse_go_worker]
+  type = "remap"
+  inputs = ["go_worker_logs"]
+  source = '''
+    . = merge!(parse_json!(.message), .)
+    .timestamp = .time  # slog uses 'time' by default
+    del(.message)
+    del(.time)
+  '''
+
+[transforms.parse_go_reaper]
+  type = "remap"
+  inputs = ["go_reaper_logs"]
+  source = '''
+    . = merge!(parse_json!(.message), .)
+    .timestamp = .time  # slog uses 'time' by default
+    del(.message)
+    del(.time)
+  '''
+
+# ... your sinks section remains the same
+
+[sinks.opensearch_sink]
+  inputs = ["parse_python_api", "parse_go_worker", "parse_go_reaper"]
+  type = "elasticsearch"
+  endpoints = ["https://opensearch-node:9200"]
+  mode = "data_stream"
+  
+  # Remove or disable type field for OpenSearch compatibility
+  suppress_type_name = true
+  
+  buffer.type = "memory"
+  buffer.max_events = 5000
+  buffer.when_full = "block"
+
+  [sinks.opensearch_sink.data_stream]
+    name = "blogspy"
+
+  [sinks.opensearch_sink.auth]
+    strategy = "basic"
+    user = "${OPENSEARCH_USERNAME}"
+    password = "${OPENSEARCH_PASSWORD}"
+
+  [sinks.opensearch_sink.tls]
+    verify_certificate = false

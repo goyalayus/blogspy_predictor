@@ -30,6 +30,7 @@ type URLRecord struct {
 type FetchedContent struct {
 	IsNonHTML, IsCSR                                       bool
 	FinalURL, HTMLContent, TextContent, Title, Description string
+	Language                                               string // NEW: Detected language code (e.g., "eng")
 	GoqueryDoc                                             *goquery.Document
 }
 

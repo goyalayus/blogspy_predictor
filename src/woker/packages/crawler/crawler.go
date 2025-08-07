@@ -1,10 +1,10 @@
-// Package crawler
 package crawler
 
 import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -12,6 +12,7 @@ import (
 	"worker/packages/domain"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/abadojack/whatlanggo"
 )
 
 type Crawler struct {
@@ -25,6 +26,7 @@ func New(timeout time.Duration) *Crawler {
 }
 
 func (c *Crawler) FetchAndParseContent(ctx context.Context, rawURL string) (*domain.FetchedContent, error) {
+	slog.Debug("Starting content fetch and parse", "url", rawURL)
 	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
 	if err != nil {
 		return nil, err
@@ -38,11 +40,13 @@ func (c *Crawler) FetchAndParseContent(ctx context.Context, rawURL string) (*dom
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		slog.Debug("Fetch returned bad status code", "url", rawURL, "status_code", resp.StatusCode)
 		return nil, fmt.Errorf("bad status code: %d", resp.StatusCode)
 	}
 
 	contentType := resp.Header.Get("Content-Type")
 	if !strings.Contains(strings.ToLower(contentType), "html") {
+		slog.Debug("Content-Type is not HTML", "url", rawURL, "content_type", contentType)
 		return &domain.FetchedContent{IsNonHTML: true, FinalURL: resp.Request.URL.String()}, nil
 	}
 
@@ -59,25 +63,51 @@ func (c *Crawler) FetchAndParseContent(ctx context.Context, rawURL string) (*dom
 
 	content := &domain.FetchedContent{FinalURL: resp.Request.URL.String(), HTMLContent: htmlContent, GoqueryDoc: doc}
 
+	// Basic CSR detection
 	if doc.Find("#root, #app, [data-reactroot]").Length() > 0 && len(strings.TrimSpace(doc.Find("body").Text())) < 250 {
 		content.IsCSR = true
 	}
+	// Next.js specific CSR bailout indicator
 	if doc.Find("template[data-dgst='BAILOUT_TO_CLIENT_SIDE_RENDERING']").Length() > 0 {
 		content.IsCSR = true
 	}
-	if content.IsCSR {
-		return content, nil
-	}
 
+	// Extract metadata
 	content.Title = strings.TrimSpace(doc.Find("title").First().Text())
 	if val, exists := doc.Find("meta[name='description']").Attr("content"); exists {
 		content.Description = strings.TrimSpace(val)
 	}
 
+	// Extract clean text content once, to be used for both language detection and the final result.
 	doc.Find("script, style, noscript").Remove()
 	re := strings.NewReplacer("\n", " ", "\t", " ", "\r", " ")
 	content.TextContent = strings.Join(strings.Fields(re.Replace(doc.Text())), " ")
 
+	// --- MODIFIED: Language Detection Logic ---
+	// Create a more robust sample for language detection by combining metadata and body text.
+	var textSnippet string
+	words := strings.Fields(content.TextContent)
+	if len(words) > 100 {
+		textSnippet = strings.Join(words[:100], " ")
+	} else {
+		textSnippet = content.TextContent
+	}
+
+	// Combine title, description, and the first 100 words for a better detection sample.
+	textForDetection := content.Title + " " + content.Description + " " + textSnippet
+
+	if strings.TrimSpace(textForDetection) != "" {
+		info := whatlanggo.Detect(textForDetection)
+		content.Language = info.Lang.Iso6393() // e.g., "eng", "deu"
+	}
+	// --- End of modified logic ---
+
+	if content.IsCSR {
+		slog.Debug("Detected client-side rendering", "url", rawURL)
+		return content, nil
+	}
+
+	// The full text content was already extracted above, so no more work is needed here.
 	return content, nil
 }
 
@@ -112,5 +142,6 @@ func (c *Crawler) ExtractLinks(doc *goquery.Document, baseURL string, ignoreExte
 	for link := range linkSet {
 		links = append(links, link)
 	}
+	slog.Debug("Link extraction found links", "base_url", baseURL, "count", len(links))
 	return links
 }

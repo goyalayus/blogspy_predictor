@@ -2,38 +2,47 @@
 package worker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"strings"
+	"sync"
+	"time"
 	"worker/packages/config"
 	"worker/packages/crawler"
 	"worker/packages/db"
 	"worker/packages/domain"
 	"worker/packages/generated"
 
-	"github.com/jackc/pgx/v5"
 	"golang.org/x/sync/errgroup"
 )
 
 type Worker struct {
-	cfg     config.Config
-	storage *db.Storage
-	crawler *crawler.Crawler
+	cfg        config.Config
+	storage    *db.Storage
+	crawler    *crawler.Crawler
+	httpClient *http.Client
 }
 
 func New(cfg config.Config, storage *db.Storage, crawler *crawler.Crawler) *Worker {
 	return &Worker{
-		cfg:     cfg,
-		storage: storage,
-		crawler: crawler,
+		cfg:        cfg,
+		storage:    storage,
+		crawler:    crawler,
+		httpClient: &http.Client{},
 	}
 }
 
 func (w *Worker) ProcessJobs(ctx context.Context, jobType string, fromStatus, toStatus generated.CrawlStatus) {
+	lockStart := time.Now()
 	jobsList, err := w.storage.LockJobs(ctx, fromStatus, toStatus, int32(w.cfg.BatchSize))
+	lockDuration := time.Since(lockStart)
+
 	if err != nil {
 		slog.Error("Failed to lock and update jobs", "type", jobType, "error", err)
 		return
@@ -43,7 +52,22 @@ func (w *Worker) ProcessJobs(ctx context.Context, jobType string, fromStatus, to
 		return
 	}
 
-	slog.Info("Locked and dispatched jobs", "type", jobType, "count", len(jobsList))
+	slog.Info("Locked new job batch",
+		"event", slog.GroupValue(
+			slog.String("name", "JOB_BATCH_LOCKED"),
+			slog.String("stage", "end"),
+			slog.Float64("duration_ms", float64(lockDuration.Microseconds())/1000.0),
+		),
+		"details", slog.GroupValue(
+			slog.Any("input", map[string]interface{}{
+				"job_type":       jobType,
+				"requested_size": w.cfg.BatchSize,
+			}),
+			slog.Any("output", map[string]interface{}{
+				"locked_count": len(jobsList),
+			}),
+		),
+	)
 
 	g, gCtx := errgroup.WithContext(ctx)
 	g.SetLimit(w.cfg.MaxWorkers)
@@ -51,18 +75,20 @@ func (w *Worker) ProcessJobs(ctx context.Context, jobType string, fromStatus, to
 	for _, job := range jobsList {
 		currentJob := job
 		g.Go(func() error {
+			jobLogger := slog.With("correlation_id", fmt.Sprintf("job_%d", currentJob.ID))
+
 			domainJob := domain.URLRecord{
 				ID:  currentJob.ID,
 				URL: currentJob.Url,
 			}
 			var err error
 			if jobType == "classification" {
-				err = w.processClassificationTask(gCtx, domainJob)
+				err = w.processClassificationTask(gCtx, domainJob, jobLogger)
 			} else {
-				err = w.processCrawlTask(gCtx, domainJob)
+				err = w.processCrawlTask(gCtx, domainJob, jobLogger)
 			}
 			if err != nil {
-				slog.Error("Task processing failed unexpectedly", "job_id", currentJob.ID, "url", currentJob.Url, "error", err)
+				jobLogger.Error("Task processing failed unexpectedly", "error", err)
 			}
 			return nil
 		})
@@ -71,74 +97,116 @@ func (w *Worker) ProcessJobs(ctx context.Context, jobType string, fromStatus, to
 	slog.Info("Finished processing batch", "type", jobType, "count", len(jobsList))
 }
 
-func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRecord) error {
+func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRecord, jobLogger *slog.Logger) error {
+	jobLogger.Info("Starting classification task", "event", slog.GroupValue(
+		slog.String("name", "CLASSIFICATION_TASK_STARTED"),
+		slog.String("stage", "start"),
+	))
+
+	fetchStart := time.Now()
 	content, err := w.crawler.FetchAndParseContent(ctx, job.URL)
+	fetchDuration := time.Since(fetchStart)
+
 	if err != nil {
+		jobLogger.Warn("Content fetch failed",
+			"event", slog.GroupValue(slog.String("name", "CONTENT_FETCH_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(fetchDuration.Microseconds())/1000.0)),
+			"details", slog.GroupValue(slog.Any("input", map[string]interface{}{"url": job.URL}), slog.Any("output", map[string]interface{}{"error": err.Error()})),
+		)
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: err.Error()})
 		return nil
 	}
+
+	jobLogger.Info("Content fetch completed",
+		"event", slog.GroupValue(slog.String("name", "CONTENT_FETCH_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(fetchDuration.Microseconds())/1000.0)),
+		"details", slog.GroupValue(
+			slog.Any("input", map[string]interface{}{"url": job.URL}),
+			slog.Any("output", map[string]interface{}{
+				"final_url":        content.FinalURL,
+				"is_html":          !content.IsNonHTML,
+				"is_csr":           content.IsCSR,
+				"language":         content.Language,
+				"html_content_len": len(content.HTMLContent),
+				"text_content_len": len(content.TextContent),
+			}),
+		),
+	)
+
 	if content.IsNonHTML {
-		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{
-			ID:       job.ID,
-			Status:   domain.Irrelevant,
-			ErrorMsg: "Content-Type was not HTML",
-		})
+		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, ErrorMsg: "Content-Type was not HTML"})
 		return nil
 	}
 	if content.IsCSR {
-		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{
-			ID:        job.ID,
-			Status:    domain.Irrelevant,
-			Rendering: domain.CSR,
-			ErrorMsg:  "Detected Client-Side Rendering",
-		})
+		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, Rendering: domain.CSR, ErrorMsg: "Detected Client-Side Rendering"})
 		return nil
 	}
 
-	payload := map[string]any{
-		"url":          content.FinalURL,
-		"html_content": content.HTMLContent,
-		"text_content": content.TextContent,
+	if content.Language != "eng" && content.Language != "" {
+		errMsg := fmt.Sprintf("Non-English content detected (lang: %s)", content.Language)
+		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, ErrorMsg: errMsg})
+		return nil
 	}
-	jsonPayload, err := json.Marshal(payload)
+
+	reqBody := domain.PredictionRequest{URL: content.FinalURL, HTMLContent: content.HTMLContent, TextContent: content.TextContent}
+	jsonBody, _ := json.Marshal(reqBody)
+
+	apiCallStart := time.Now()
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", w.cfg.MLApiURL+"/predict", bytes.NewBuffer(jsonBody))
 	if err != nil {
-		slog.Error("Failed to marshal classification payload to JSON", "job_id", job.ID, "error", err)
-		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{
-			ID:       job.ID,
-			Status:   domain.Failed,
-			ErrorMsg: "JSON marshaling failed",
-		})
+		jobLogger.Error("Failed to create prediction request object", "error", err)
+		return fmt.Errorf("failed to create prediction request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	resp, err := w.httpClient.Do(httpReq)
+	apiCallDuration := time.Since(apiCallStart)
+
+	if err != nil {
+		jobLogger.Warn("ML API call failed", "event", slog.String("name", "ML_API_CALL_COMPLETED"), "duration_ms", float64(apiCallDuration.Microseconds())/1000.0, "error", err)
+		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: "Prediction API call failed: " + err.Error()})
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		errMsg := fmt.Sprintf("Prediction API returned non-200 status: %d - %s", resp.StatusCode, string(bodyBytes))
+		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: errMsg})
 		return nil
 	}
 
-	err = w.storage.WithTransaction(ctx, func(qtx *generated.Queries, tx pgx.Tx) error {
-		updateSQL := "UPDATE urls SET status = $1, processed_at = NOW() WHERE id = $2"
-		if _, err := tx.Exec(ctx, updateSQL, generated.CrawlStatusClassifying, job.ID); err != nil {
-			return err
+	var predResp domain.PredictionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&predResp); err != nil {
+		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: "Failed to decode prediction response: " + err.Error()})
+		return nil
+	}
+
+	jobLogger.Info("ML API call completed", "event", slog.String("name", "ML_API_CALL_COMPLETED"), "is_personal_blog", predResp.IsPersonalBlog)
+
+	if predResp.IsPersonalBlog {
+		if _, err := w.handleCrawlLogic(ctx, job, content, jobLogger); err != nil {
+			jobLogger.Error("Crawl logic failed, but enqueuing as complete anyway", "error", err)
 		}
-
-		_, err := qtx.EnqueueClassificationJob(ctx, generated.EnqueueClassificationJobParams{
-			UrlID:   job.ID,
-			Payload: jsonPayload,
+		w.storage.EnqueueContentInsert(domain.ContentInsertResult{
+			ID: job.ID, Title: content.Title, Description: content.Description, TextContent: content.TextContent, Rendering: domain.SSR,
 		})
-		return err
-	})
-
-	if err != nil {
-		slog.Error("Failed to enqueue classification job transaction", "job_id", job.ID, "error", err)
-		return err
+	} else {
+		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant})
 	}
-
-	slog.Info("Successfully enqueued classification job", "job_id", job.ID, "url", job.URL)
 	return nil
 }
 
-func (w *Worker) processCrawlTask(ctx context.Context, job domain.URLRecord) error {
+func (w *Worker) processCrawlTask(ctx context.Context, job domain.URLRecord, jobLogger *slog.Logger) error {
+	jobLogger.Info("Starting crawl task", "event", slog.GroupValue(slog.String("name", "CRAWL_TASK_STARTED"), slog.String("stage", "start")))
+	fetchStart := time.Now()
 	content, err := w.crawler.FetchAndParseContent(ctx, job.URL)
+	fetchDuration := time.Since(fetchStart)
+
 	if err != nil {
+		jobLogger.Warn("Content fetch failed", "event", slog.GroupValue(slog.String("name", "CONTENT_FETCH_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(fetchDuration.Microseconds())/1000.0)), "details", slog.GroupValue(slog.Any("error", err.Error())))
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: err.Error()})
 		return nil
 	}
+
+	jobLogger.Info("Content fetch completed", "event", slog.GroupValue(slog.String("name", "CONTENT_FETCH_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(fetchDuration.Microseconds())/1000.0)))
 
 	if content.IsNonHTML {
 		w.storage.EnqueueContentInsert(domain.ContentInsertResult{ID: job.ID, Rendering: domain.SSR})
@@ -149,142 +217,129 @@ func (w *Worker) processCrawlTask(ctx context.Context, job domain.URLRecord) err
 		return nil
 	}
 
-	if err := w.handleCrawlLogic(ctx, job, content); err != nil {
-		slog.Error("Crawl logic failed, but enqueuing as complete anyway", "job_id", job.ID, "error", err)
+	if _, err := w.handleCrawlLogic(ctx, job, content, jobLogger); err != nil {
+		jobLogger.Error("Crawl logic failed, but enqueuing as complete anyway", "error", err)
 	}
 	w.storage.EnqueueContentInsert(domain.ContentInsertResult{
-		ID:          job.ID,
-		Title:       content.Title,
-		Description: content.Description,
-		TextContent: content.TextContent,
-		Rendering:   domain.SSR,
+		ID: job.ID, Title: content.Title, Description: content.Description, TextContent: content.TextContent, Rendering: domain.SSR,
 	})
 	return nil
 }
 
-func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, content *domain.FetchedContent) error {
+// =================================================================================
+// MODIFIED SECTION: This logic has been completely rewritten for the new architecture.
+// =================================================================================
+func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, content *domain.FetchedContent, jobLogger *slog.Logger) (int, error) {
+	logicStart := time.Now()
+
+	// Step 1: Extract all raw links from the page.
 	newLinksRaw := w.crawler.ExtractLinks(content.GoqueryDoc, content.FinalURL, w.cfg.IgnoreExtensions)
 	if len(newLinksRaw) == 0 {
-		return nil
+		return 0, nil
 	}
 
-	linksByNetloc := make(map[string][]string)
-	var allNetlocsFound []string
-	netlocSet := make(map[string]struct{})
-	for _, link := range newLinksRaw {
-		parsed, err := url.Parse(link)
-		if err != nil || parsed.Host == "" {
-			continue
-		}
-		netloc := parsed.Host
-		linksByNetloc[netloc] = append(linksByNetloc[netloc], link)
-		if _, exists := netlocSet[netloc]; !exists {
-			netlocSet[netloc] = struct{}{}
-			allNetlocsFound = append(allNetlocsFound, netloc)
-		}
-	}
-	if len(allNetlocsFound) == 0 {
-		return nil
-	}
-
-	netlocCountsRows, err := w.storage.Queries.GetNetlocCounts(ctx, allNetlocsFound)
-	if err != nil {
-		return fmt.Errorf("crawl-logic: failed to get netloc counts: %w", err)
-	}
-	netlocCounts := make(map[string]int32)
-	for _, row := range netlocCountsRows {
-		netlocCounts[row.Netloc] = row.UrlCount
-	}
-
+	// Step 2: Check against the bloom filter and database for existing URLs.
+	// This is still a necessary step to prevent adding duplicates.
+	// The bloom filter is used inside processLinkBatches, which is called by the linkWriter.
+	// For the purpose of this function, we will rely on the DB check as the final arbiter.
 	existingURLsRows, err := w.storage.Queries.GetExistingURLs(ctx, newLinksRaw)
 	if err != nil {
-		return fmt.Errorf("crawl-logic: failed to check existing urls: %w", err)
+		return 0, fmt.Errorf("crawl-logic: failed to check existing urls: %w", err)
 	}
 	existingURLs := make(map[string]struct{}, len(existingURLsRows))
 	for _, urlStr := range existingURLsRows {
 		existingURLs[urlStr] = struct{}{}
 	}
 
-	domainDecisionsRows, err := w.storage.Queries.GetDomainDecisions(ctx, allNetlocsFound)
-	if err != nil {
-		return fmt.Errorf("crawl-logic: failed to get domain decisions: %w", err)
-	}
-	domainDecisions := make(map[string]generated.CrawlStatus)
-	for _, row := range domainDecisionsRows {
-		domainDecisions[row.Netloc] = row.Status
-	}
+	// Step 3: Pre-filter the links and group them by netloc.
+	// We do this BEFORE calling Redis to avoid unnecessary network calls for links that are invalid
+	// or have already been processed.
+	candidatesByNetloc := make(map[string][]string)
+	for _, link := range newLinksRaw {
+		if _, exists := existingURLs[link]; exists {
+			continue // Skip already known URLs.
+		}
 
-	linksToQueue := w.filterAndPrepareLinks(job, linksByNetloc, netlocCounts, existingURLs, domainDecisions)
-
-	if len(linksToQueue) > 0 {
-		w.storage.EnqueueLinks(domain.LinkBatch{SourceURLID: job.ID, NewLinks: linksToQueue})
-	}
-	return nil
-}
-
-func (w *Worker) filterAndPrepareLinks(
-	job domain.URLRecord,
-	linksByNetloc map[string][]string,
-	netlocCounts map[string]int32,
-	existingURLs map[string]struct{},
-	domainDecisions map[string]generated.CrawlStatus,
-) []domain.NewLink {
-	sourceNetloc, err := url.Parse(job.URL)
-	if err != nil {
-		slog.Error("Could not parse source job URL", "url", job.URL, "error", err)
-		return nil
-	}
-
-	var linksToQueue []domain.NewLink
-	for netloc, links := range linksByNetloc {
-		if int(netlocCounts[netloc]) >= w.cfg.MaxUrlsPerNetloc {
+		parsed, err := url.Parse(link)
+		if err != nil || parsed.Host == "" {
 			continue
 		}
-		for _, link := range links {
-			if _, exists := existingURLs[link]; exists {
-				continue
-			}
+		netloc := parsed.Host
 
-			isRestricted := false
-			for _, tld := range w.cfg.RestrictedTLDs {
-				if strings.HasSuffix(netloc, tld) {
-					isRestricted = true
-					break
-				}
-			}
-			if isRestricted {
-				path := getPath(link)
-				isAllowed := false
-				for _, prefix := range w.cfg.AllowedPathPrefixes {
-					if strings.HasPrefix(path, prefix) || path == "/" || path == "" {
-						isAllowed = true
-						break
-					}
-				}
-				if !isAllowed {
-					continue
-				}
-			}
-
-			linkStatus := domain.PendingClassification
-			if netloc == sourceNetloc.Host {
-				linkStatus = domain.PendingCrawl
-			} else if decision, ok := domainDecisions[netloc]; ok {
-				if decision == generated.CrawlStatusIrrelevant {
-					linkStatus = domain.Irrelevant
-				} else {
-					linkStatus = domain.PendingCrawl
-				}
-			}
-
-			linksToQueue = append(linksToQueue, domain.NewLink{URL: link, Netloc: netloc, Status: linkStatus})
-			netlocCounts[netloc]++
-			if int(netlocCounts[netloc]) >= w.cfg.MaxUrlsPerNetloc {
+		// This is the preserved business logic for restricted TLDs.
+		isRestricted := false
+		for _, tld := range w.cfg.RestrictedTLDs {
+			if strings.HasSuffix(netloc, tld) {
+				isRestricted = true
 				break
 			}
 		}
+		if isRestricted {
+			path := getPath(link)
+			isAllowed := false
+			for _, prefix := range w.cfg.AllowedPathPrefixes {
+				if strings.HasPrefix(path, prefix) || path == "/" || path == "" {
+					isAllowed = true
+					break
+				}
+			}
+			if !isAllowed {
+				continue
+			}
+		}
+		candidatesByNetloc[netloc] = append(candidatesByNetloc[netloc], link)
 	}
-	return linksToQueue
+
+	if len(candidatesByNetloc) == 0 {
+		return 0, nil
+	}
+
+	// Step 4: Atomically reserve slots for each netloc using the Redis Lua script.
+	// This is done concurrently for maximum performance.
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var finalLinksToQueue []domain.NewLink
+
+	for netloc, urls := range candidatesByNetloc {
+		wg.Add(1)
+		go func(n string, u []string) {
+			defer wg.Done()
+			// The ReserveNetlocSlots function now handles the atomic check and increment.
+			acceptedURLs, err := w.storage.ReserveNetlocSlots(ctx, n, u)
+			if err != nil {
+				jobLogger.Error("Failed to reserve netloc slots from Redis", "netloc", n, "error", err)
+				return
+			}
+			if len(acceptedURLs) > 0 {
+				mu.Lock()
+				for _, acceptedURL := range acceptedURLs {
+					finalLinksToQueue = append(finalLinksToQueue, domain.NewLink{
+						URL:    acceptedURL,
+						Netloc: n,
+						Status: domain.PendingClassification, // Always default to pending classification.
+					})
+				}
+				mu.Unlock()
+			}
+		}(netloc, urls)
+	}
+	wg.Wait()
+
+	// Step 5: Enqueue the batch of links that were successfully reserved.
+	if len(finalLinksToQueue) > 0 {
+		w.storage.EnqueueLinks(domain.LinkBatch{SourceURLID: job.ID, NewLinks: finalLinksToQueue})
+	}
+
+	logicDuration := time.Since(logicStart)
+	jobLogger.Info("Link filtering and reservation completed",
+		"event", slog.GroupValue(slog.String("name", "LINK_FILTERING_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(logicDuration.Microseconds())/1000.0)),
+		"details", slog.GroupValue(
+			slog.Any("input", map[string]interface{}{"raw_link_count": len(newLinksRaw)}),
+			slog.Any("output", map[string]interface{}{"queued_link_count": len(finalLinksToQueue)}),
+		),
+	)
+
+	return len(finalLinksToQueue), nil
 }
 
 func getPath(rawURL string) string {

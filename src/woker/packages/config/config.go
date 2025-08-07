@@ -32,6 +32,16 @@ type Config struct {
 	ContentInsertInterval  time.Duration
 	ContentInsertQueueSize int
 	StatusUpdateQueueSize  int
+	// NEW: Logging configuration
+	LogFile  string
+	LogLevel string
+	// NEW: Redis and Bloom Filter Configuration
+	RedisAddr            string
+	RedisPassword        string
+	RedisDB              int
+	BloomFilterKey       string
+	BloomFilterCapacity  int64
+	BloomFilterErrorRate float64
 }
 
 func Load() (Config, error) {
@@ -79,6 +89,18 @@ func Load() (Config, error) {
 	cfg.RestrictedTLDs = strings.Split(getEnv("RESTRICTED_TLDS", ".org,.edu"), ",")
 	cfg.AllowedPathPrefixes = strings.Split(getEnv("ALLOWED_PATH_PREFIXES", "/blog"), ",")
 	cfg.IgnoreExtensions = strings.Split(getEnv("IGNORE_EXTENSIONS", ".pdf,.jpg,.jpeg,.png,.gif,.zip,.rar,.exe,.mp3,.mp4,.avi,.mov,.dmg,.iso,.css,.js,.xml,.json,.gz,.tar,.tgz"), ",")
+
+	// NEW: Load logging configuration from environment
+	cfg.LogFile = getEnv("LOG_FILE", "logs/worker.log")
+	cfg.LogLevel = getEnv("LOG_LEVEL", "info")
+
+	// NEW: Load Redis and Bloom Filter configuration
+	cfg.RedisAddr = getEnv("REDIS_ADDR", "localhost:6379")
+	cfg.RedisPassword = getEnv("REDIS_PASSWORD", "") // No password by default
+	cfg.RedisDB, _ = strconv.Atoi(getEnv("REDIS_DB", "0"))
+	cfg.BloomFilterKey = getEnv("BLOOM_FILTER_KEY", "blogspy:urls_bloom")
+	cfg.BloomFilterCapacity, _ = strconv.ParseInt(getEnv("BLOOM_FILTER_CAPACITY", "20000000"), 10, 64) // Default: 20 million
+	cfg.BloomFilterErrorRate, _ = strconv.ParseFloat(getEnv("BLOOM_FILTER_ERROR_RATE", "0.0001"), 64)  // Default: 1 in 10,000
 
 	return cfg, nil
 }

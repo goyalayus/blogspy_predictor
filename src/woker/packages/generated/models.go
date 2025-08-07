@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/pgvector/pgvector-go"
 )
 
 type CrawlStatus string
@@ -100,21 +101,6 @@ func (ns NullRenderingType) Value() (driver.Value, error) {
 	return string(ns.RenderingType), nil
 }
 
-type ClassificationQueue struct {
-	ID        int64
-	UrlID     int64
-	Payload   []byte
-	Status    string
-	CreatedAt pgtype.Timestamptz
-	LockedAt  pgtype.Timestamptz
-}
-
-type NetlocCount struct {
-	Netloc    string
-	UrlCount  int32
-	UpdatedAt pgtype.Timestamptz
-}
-
 type SystemCounter struct {
 	CounterName string
 	Value       int64
@@ -122,21 +108,24 @@ type SystemCounter struct {
 }
 
 type Url struct {
-	ID           int64
-	Url          string
-	Netloc       string
-	Status       CrawlStatus
-	Rendering    NullRenderingType
-	ErrorMessage pgtype.Text
-	LockedAt     pgtype.Timestamptz
-	ProcessedAt  pgtype.Timestamptz
+	ID            int64
+	Url           string
+	Netloc        string
+	Status        CrawlStatus
+	Rendering     NullRenderingType
+	ErrorMessage  pgtype.Text
+	LockedAt      pgtype.Timestamptz
+	ProcessedAt   pgtype.Timestamptz
+	PagerankScore pgtype.Float4
 }
 
 type UrlContent struct {
-	UrlID       int64
-	Title       pgtype.Text
-	Description pgtype.Text
-	Content     pgtype.Text
+	UrlID        int64
+	Title        pgtype.Text
+	Description  pgtype.Text
+	Content      pgtype.Text
+	SearchVector interface{}
+	Embedding    pgvector.Vector
 }
 
 type UrlEdge struct {

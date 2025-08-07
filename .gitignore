@@ -35,4 +35,5 @@ venv.bak/
 Thumbs.db
 logs/
 digest.txt
+combined_logs.txt
 src/woker/blogspy_backup_before_migration.sql

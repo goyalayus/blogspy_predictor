@@ -21,21 +21,9 @@ WHERE
     status IN ('classifying'::crawl_status, 'crawling'::crawl_status)
     AND locked_at < NOW() - sqlc.arg('timeout_interval')::interval;
 
--- name: GetNetlocCounts :many
-SELECT netloc, url_count FROM netloc_counts
-WHERE netloc = ANY(@netlocs::text[]);
-
 -- name: GetExistingURLs :many
 SELECT url FROM urls
 WHERE url = ANY(@urls::text[]);
-
--- name: GetDomainDecisions :many
-SELECT DISTINCT ON (netloc) netloc, status
-FROM urls
-WHERE netloc = ANY(@netlocs::text[])
-  AND status IN ('pending_crawl', 'crawling', 'completed', 'irrelevant');
-
--- QUERIES FOR THE REAPER AND THROTTLING MECHANISM
 
 -- name: GetCounterValue :one
 SELECT value FROM system_counters WHERE counter_name = $1;
@@ -46,17 +34,8 @@ UPDATE system_counters SET value = $1, updated_at = NOW() WHERE counter_name = $
 -- name: CountPendingURLs :one
 SELECT count(*)::bigint FROM urls WHERE status IN ('pending_classification', 'pending_crawl');
 
--- name: RefreshNetlocCounts :exec
-INSERT INTO netloc_counts (netloc, url_count, updated_at)
-SELECT netloc, COUNT(id)::int, NOW()
-FROM urls
-GROUP BY netloc
-ON CONFLICT (netloc) DO UPDATE
-SET url_count = EXCLUDED.url_count,
-    updated_at = EXCLUDED.updated_at;
+-- DELETED: The 'RefreshNetlocCounts' query was here.
 
--- MODIFIED: Rewritten to use a more robust NOT EXISTS pattern.
--- This finds 'completed' jobs whose content was lost due to a crash.
 -- name: ResetOrphanedCompletedJobs :execrows
 UPDATE urls u
 SET
@@ -72,31 +51,5 @@ WHERE
         WHERE uc.url_id = u.id
     );
 
--- name: EnqueueClassificationJob :one
-INSERT INTO classification_queue (url_id, payload)
-VALUES ($1, $2)
-RETURNING id;
-
--- name: LockAndFetchClassificationJobs :many
-WITH locked_jobs AS (
-    SELECT id
-    FROM classification_queue
-    WHERE status = 'new'
-    ORDER BY id
-    FOR UPDATE SKIP LOCKED
-    LIMIT $1
-)
-UPDATE classification_queue q
-SET status = 'processing', locked_at = NOW()
-FROM locked_jobs lj
-WHERE q.id = lj.id
-RETURNING q.id, q.url_id, q.payload;
-
--- name: DeleteClassificationJobs :exec
-DELETE FROM classification_queue
-WHERE id = ANY(@job_ids::bigint[]);
-
--- name: ResetStalledClassificationJobs :exec
-UPDATE classification_queue
-SET status = 'new', locked_at = NULL
-WHERE status = 'processing' AND locked_at < NOW() - sqlc.arg('timeout')::interval;
+-- name: GetTotalURLCount :one
+SELECT count(*)::bigint FROM urls;

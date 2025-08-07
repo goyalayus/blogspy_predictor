@@ -1,14 +1,18 @@
-
 # src/02_feature_engineering.py
 
 import pandas as pd
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 import re
+import time
+import logging
 
+# Get a logger for this module
+logger = logging.getLogger("FeatureEngineering")
 
 def extract_url_features(urls: pd.Series) -> pd.DataFrame:
     """Extracts features from the URL string itself."""
+    start_time = time.perf_counter()
     features = []
     for url in urls:
         try:
@@ -36,11 +40,18 @@ def extract_url_features(urls: pd.Series) -> pd.DataFrame:
                 'url_len': 0, 'domain_len': 0, 'path_depth': 0,
                 'is_dev_tld': 0, 'is_github_io': 0, 'is_neocities': 0,
             })
+    
+    duration_ms = (time.perf_counter() - start_time) * 1000
+    logger.debug("URL feature extraction complete", extra={
+        "event": {"name": "URL_FEATURE_EXTRACTION_COMPLETED", "duration_ms": round(duration_ms, 2)},
+        "details": {"input": {"row_count": len(urls)}}
+    })
     return pd.DataFrame(features)
 
 
 def extract_structural_features(html_contents: pd.Series) -> pd.DataFrame:
     """Extracts features from the HTML structure and metadata."""
+    start_time = time.perf_counter()
     features = []
     for html in html_contents:
         if not isinstance(html, str):
@@ -74,11 +85,18 @@ def extract_structural_features(html_contents: pd.Series) -> pd.DataFrame:
             # Fallback for parsing errors
             features.append({'generator_is_hugo': 0, 'generator_is_jekyll': 0, 'generator_is_wordpress': 0,
                              'has_hubspot_script': 0, 'link_count': 0, 'form_count': 0})
+
+    duration_ms = (time.perf_counter() - start_time) * 1000
+    logger.debug("Structural feature extraction complete", extra={
+        "event": {"name": "STRUCTURAL_FEATURE_EXTRACTION_COMPLETED", "duration_ms": round(duration_ms, 2)},
+        "details": {"input": {"row_count": len(html_contents)}}
+    })
     return pd.DataFrame(features)
 
 
 def extract_content_features(text_contents: pd.Series) -> pd.DataFrame:
     """Extracts features from the visible text content."""
+    start_time = time.perf_counter()
     features = []
     for text in text_contents:
         if not isinstance(text, str):
@@ -101,4 +119,10 @@ def extract_content_features(text_contents: pd.Series) -> pd.DataFrame:
             'corporate_pronoun_count': corporate_pronouns,
             'corporate_keyword_count': corporate_keywords,
         })
+    
+    duration_ms = (time.perf_counter() - start_time) * 1000
+    logger.debug("Content feature extraction complete", extra={
+        "event": {"name": "CONTENT_FEATURE_EXTRACTION_COMPLETED", "duration_ms": round(duration_ms, 2)},
+        "details": {"input": {"row_count": len(text_contents)}}
+    })
     return pd.DataFrame(features)

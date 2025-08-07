@@ -1,0 +1,133 @@
+services:
+  python-api:
+    build: { context: ., dockerfile: Dockerfile }
+    container_name: python-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+      - "9092:9092"
+    volumes: ["./logs:/app/logs"]
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - LOG_FILE=/app/logs/python_api.log
+      - LOG_LEVEL=${LOG_LEVEL}
+    networks: [app-net]
+    depends_on: { redis: { condition: service_healthy } }
+
+  go-worker:
+    build:
+      context: ./src/woker
+      dockerfile: Dockerfile
+    container_name: go-worker
+    restart: unless-stopped
+    command: ["/worker"]
+    ports:
+      - "9091:9091"
+    volumes: ["./logs:/app/logs"]
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - ML_API_URL=http://python-api:8000
+      - REDIS_ADDR=redis:6379
+      - LOG_FILE=/app/logs/worker.log
+      - LOG_LEVEL=${LOG_LEVEL}
+    networks: [app-net]
+    depends_on: [python-api, redis]
+
+  go-reaper:
+    build:
+      context: ./src/woker
+      dockerfile: Dockerfile
+    container_name: go-reaper
+    restart: unless-stopped
+    command: ["/reaper"]
+    ports:
+      - "9093:9093"
+    volumes: ["./logs:/app/logs"]
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_ADDR=redis:6379
+      - LOG_FILE=/app/logs/reaper.log
+      - LOG_LEVEL=${LOG_LEVEL}
+      - ML_API_URL=http://python-api:8000
+    networks: [app-net]
+    depends_on: [redis, opensearch-node]
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: prometheus
+    restart: unless-stopped
+    ports: ["9090:9090"]
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command: --config.file=/etc/prometheus/prometheus.yml
+    networks: [app-net]
+
+  grafana:
+    image: grafana/grafana-oss:11.1.0
+    container_name: grafana
+    restart: unless-stopped
+    ports: ["3000:3000"]
+    volumes: [grafana-data:/var/lib/grafana]
+    networks: [app-net]
+    depends_on: [prometheus]
+
+  redis:
+    image: redis/redis-stack-server:latest
+    container_name: redis
+    restart: unless-stopped
+    ports: ["6379:6379"]
+    volumes: [redis-data:/data]
+    networks: [app-net]
+    healthcheck: { test: ["CMD", "redis-cli", "-h", "localhost", "-p", "6379", "ping"], interval: 10s, timeout: 5s, retries: 5 }
+
+  opensearch-node:
+    image: opensearchproject/opensearch:2.15.0
+    container_name: opensearch-node
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
+    volumes: [opensearch-data:/usr/share/opensearch/data]
+    ports: ["9200:9200"]
+    networks: [app-net]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sS --fail -k -u 'admin:${OPENSEARCH_INITIAL_ADMIN_PASSWORD}' https://localhost:9200/_cluster/health | grep -vq '\"status\":\"red\"'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2.15.0
+    container_name: opensearch-dashboards
+    restart: unless-stopped
+    ports: ["5601:5601"]
+    environment:
+      OPENSEARCH_HOSTS: '["https://opensearch-node:9200"]'
+    networks: [app-net]
+    depends_on: { opensearch-node: { condition: service_healthy } }
+
+  vector:
+    image: timberio/vector:0.36.0-debian
+    container_name: vector-log-collector
+    restart: unless-stopped
+    command: ["--config", "/etc/vector/vector.toml"]
+    volumes:
+      - ./vector/vector.toml:/etc/vector/vector.toml:ro
+      - ./logs:/var/log/app:ro
+    environment:
+      - OPENSEARCH_USERNAME=admin
+      - OPENSEARCH_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
+    networks: [app-net]
+    depends_on: { opensearch-node: { condition: service_healthy } }
+
+volumes:
+  opensearch-data:
+  redis-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  app-net:
+    driver: bridge
