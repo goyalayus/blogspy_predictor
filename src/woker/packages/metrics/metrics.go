@@ -18,11 +18,29 @@ var (
 		},
 		[]string{"query_name"},
 	)
-
 	TotalURLs = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "blogspy_urls_total",
 			Help: "Total number of URLs in the urls table.",
+		},
+	)
+	BackfillerRecordsProcessed = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "backfiller_records_processed_total",
+			Help: "Total number of records processed by the backfiller.",
+		},
+	)
+	BackfillerAPIRequests = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "backfiller_api_requests_total",
+			Help: "Total number of API requests made by the backfiller, labeled by status code.",
+		},
+		[]string{"status_code"},
+	)
+	BackfillerLastProcessedID = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "backfiller_last_processed_url_id",
+			Help: "The last url_id processed by the backfiller, to track progress.",
 		},
 	)
 )
@@ -30,6 +48,9 @@ var (
 func init() {
 	prometheus.MustRegister(DBQueryDuration)
 	prometheus.MustRegister(TotalURLs)
+	prometheus.MustRegister(BackfillerRecordsProcessed)
+	prometheus.MustRegister(BackfillerAPIRequests)
+	prometheus.MustRegister(BackfillerLastProcessedID)
 }
 
 func ExposeMetrics(addr string) {

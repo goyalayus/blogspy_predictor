@@ -16,6 +16,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"worker/packages/metrics"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -32,6 +33,7 @@ const (
 	TaskType             = "RETRIEVAL_DOCUMENT"
 	OutputDimensionality = 256
 	MaxContentLength     = 1500
+	MinContentLength     = 50
 	DBBatchSize          = 500
 	APIBatchSize         = 100
 	ConcurrencyLimit     = 8
@@ -40,26 +42,21 @@ const (
 type GeminiRequest struct {
 	Requests []EmbedRequest `json:"requests"`
 }
-
 type EmbedRequest struct {
 	Model   string  `json:"model"`
 	Content Content `json:"content"`
 	Task    string  `json:"task_type"`
 	Output  int     `json:"output_dimensionality"`
 }
-
 type Content struct {
 	Parts []Part `json:"parts"`
 }
-
 type Part struct {
 	Text string `json:"text"`
 }
-
 type GeminiResponse struct {
 	Embeddings []Embedding `json:"embeddings"`
 }
-
 type Embedding struct {
 	Values []float32 `json:"values"`
 }
@@ -70,7 +67,6 @@ type DBRecord struct {
 	Description pgtype.Text
 	Content     pgtype.Text
 }
-
 type Embedder struct {
 	db     *pgxpool.Pool
 	client *http.Client
@@ -88,6 +84,7 @@ func NewEmbedder(db *pgxpool.Pool, apiKey string) *Embedder {
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
+
 	if err := godotenv.Load("../../../../.env"); err != nil {
 		slog.Info("Could not load .env file from project root", "error", err)
 	}
@@ -101,6 +98,8 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	go metrics.ExposeMetrics("0.0.0.0:9094")
 
 	dbConfig, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
@@ -127,15 +126,15 @@ func main() {
 }
 
 func (e *Embedder) Run(ctx context.Context) error {
-	var offset int
+	var lastProcessedID int64
 	var totalProcessed int
 	for {
 		select {
 		case <-ctx.Done():
 			return errors.New("process cancelled by user")
 		default:
-			slog.Info("Fetching next batch from database", "limit", DBBatchSize, "offset", offset)
-			records, err := e.fetchBatchFromDB(ctx, DBBatchSize, offset)
+			slog.Info("Fetching next batch from database", "limit", DBBatchSize, "after_url_id", lastProcessedID)
+			records, err := e.fetchBatchFromDB(ctx, DBBatchSize, lastProcessedID)
 			if err != nil {
 				return fmt.Errorf("failed to fetch from database: %w", err)
 			}
@@ -149,22 +148,26 @@ func (e *Embedder) Run(ctx context.Context) error {
 				return fmt.Errorf("failed to process database batch: %w", err)
 			}
 
+			lastProcessedID = records[len(records)-1].URLID
 			totalProcessed += len(records)
-			slog.Info("Successfully processed a batch", "batch_size", len(records), "total_processed", totalProcessed)
-			offset += DBBatchSize
+
+			metrics.BackfillerRecordsProcessed.Add(float64(len(records)))
+			metrics.BackfillerLastProcessedID.Set(float64(lastProcessedID))
+
+			slog.Info("Successfully processed a batch", "batch_size", len(records), "total_processed", totalProcessed, "last_id", lastProcessedID)
 		}
 	}
 }
 
-func (e *Embedder) fetchBatchFromDB(ctx context.Context, limit, offset int) ([]DBRecord, error) {
+func (e *Embedder) fetchBatchFromDB(ctx context.Context, limit int, lastID int64) ([]DBRecord, error) {
 	query := `
 		SELECT url_id, title, description, content
 		FROM url_content
-		WHERE embedding IS NULL AND content IS NOT NULL AND content != ''
+		WHERE embedding IS NULL AND content IS NOT NULL AND content != '' AND url_id > $1
 		ORDER BY url_id
-		LIMIT $1 OFFSET $2
+		LIMIT $2
 	`
-	rows, err := e.db.Query(ctx, query, limit, offset)
+	rows, err := e.db.Query(ctx, query, lastID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -201,8 +204,12 @@ func (e *Embedder) processDBBatch(ctx context.Context, records []DBRecord) error
 			}
 
 			for j, embedding := range embeddings {
-				normalizedVector := normalize(embedding.Values)
 				record := chunk[j]
+				if len(embedding.Values) == 0 {
+					slog.Warn("Received empty embedding, likely due to pre-API filtering. Skipping update.", "url_id", record.URLID)
+					continue
+				}
+				normalizedVector := normalize(embedding.Values)
 				results.Store(record.URLID, normalizedVector)
 			}
 			return nil
@@ -217,19 +224,48 @@ func (e *Embedder) processDBBatch(ctx context.Context, records []DBRecord) error
 }
 
 func (e *Embedder) getEmbeddingsForChunk(ctx context.Context, chunk []DBRecord) ([]Embedding, error) {
-	apiRequests := make([]EmbedRequest, len(chunk))
+	type MappedRecord struct {
+		OriginalIndex int
+		Record        DBRecord
+	}
+	var validRecords []MappedRecord
+
 	for i, record := range chunk {
 		var builder strings.Builder
 		if record.Title.Valid {
 			builder.WriteString(record.Title.String)
-			builder.WriteString("\n\n")
 		}
 		if record.Description.Valid {
-			builder.WriteString(record.Description.String)
-			builder.WriteString("\n\n")
+			builder.WriteString(" " + record.Description.String)
 		}
 		if record.Content.Valid {
-			content := record.Content.String
+			builder.WriteString(" " + record.Content.String)
+		}
+
+		if len(strings.TrimSpace(builder.String())) < MinContentLength {
+			slog.Debug("Skipping record with insufficient content", "url_id", record.URLID)
+			continue
+		}
+		validRecords = append(validRecords, MappedRecord{OriginalIndex: i, Record: record})
+	}
+
+	if len(validRecords) == 0 {
+		return make([]Embedding, len(chunk)), nil
+	}
+
+	apiRequests := make([]EmbedRequest, len(validRecords))
+	for i, mappedRecord := range validRecords {
+		var builder strings.Builder
+		if mappedRecord.Record.Title.Valid {
+			builder.WriteString(mappedRecord.Record.Title.String)
+			builder.WriteString("\n\n")
+		}
+		if mappedRecord.Record.Description.Valid {
+			builder.WriteString(mappedRecord.Record.Description.String)
+			builder.WriteString("\n\n")
+		}
+		if mappedRecord.Record.Content.Valid {
+			content := mappedRecord.Record.Content.String
 			if len(content) > MaxContentLength {
 				content = content[:MaxContentLength]
 			}
@@ -237,12 +273,10 @@ func (e *Embedder) getEmbeddingsForChunk(ctx context.Context, chunk []DBRecord) 
 		}
 
 		apiRequests[i] = EmbedRequest{
-			Model:  GeminiModel,
-			Task:   TaskType,
-			Output: OutputDimensionality,
-			Content: Content{
-				Parts: []Part{{Text: builder.String()}},
-			},
+			Model:   GeminiModel,
+			Task:    TaskType,
+			Output:  OutputDimensionality,
+			Content: Content{Parts: []Part{{Text: builder.String()}}},
 		}
 	}
 
@@ -260,9 +294,12 @@ func (e *Embedder) getEmbeddingsForChunk(ctx context.Context, chunk []DBRecord) 
 
 	resp, err := e.client.Do(httpReq)
 	if err != nil {
+		metrics.BackfillerAPIRequests.WithLabelValues("client_error").Inc()
 		return nil, fmt.Errorf("api request failed: %w", err)
 	}
 	defer resp.Body.Close()
+
+	metrics.BackfillerAPIRequests.WithLabelValues(fmt.Sprintf("%d", resp.StatusCode)).Inc()
 
 	if resp.StatusCode != http.StatusOK {
 		var errBody bytes.Buffer
@@ -275,7 +312,15 @@ func (e *Embedder) getEmbeddingsForChunk(ctx context.Context, chunk []DBRecord) 
 		return nil, fmt.Errorf("failed to decode api response: %w", err)
 	}
 
-	return apiResponse.Embeddings, nil
+	finalEmbeddings := make([]Embedding, len(chunk))
+	if len(apiResponse.Embeddings) != len(validRecords) {
+		return nil, fmt.Errorf("api returned mismatched number of embeddings")
+	}
+	for i, embedding := range apiResponse.Embeddings {
+		originalIndex := validRecords[i].OriginalIndex
+		finalEmbeddings[originalIndex] = embedding
+	}
+	return finalEmbeddings, nil
 }
 
 func (e *Embedder) updateDBWithEmbeddings(ctx context.Context, results *sync.Map) error {
