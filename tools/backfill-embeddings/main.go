@@ -56,10 +56,10 @@ type GeminiRequest struct {
 }
 
 type EmbedRequest struct {
-	Model   string        `json:"model"`
-	Content Content       `json:"content"`
-	Task    string        `json:"task_type"`
-	Output  int           `json:"output_dimensionality"`
+	Model   string  `json:"model"`
+	Content Content `json:"content"`
+	Task    string  `json:"task_type"`
+	Output  int     `json:"output_dimensionality"`
 }
 
 type Content struct {
@@ -274,7 +274,7 @@ func (e *Embedder) getEmbeddingsForChunk(ctx context.Context, chunk []DBRecord) 
 			}
 			builder.WriteString(content)
 		}
-		
+
 		apiRequests[i] = EmbedRequest{
 			Model:  GeminiModel,
 			Task:   TaskType,

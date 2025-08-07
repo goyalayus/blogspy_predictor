@@ -59,11 +59,11 @@ func (w *Worker) ProcessJobs(ctx context.Context, jobType string, fromStatus, to
 			slog.Float64("duration_ms", float64(lockDuration.Microseconds())/1000.0),
 		),
 		"details", slog.GroupValue(
-			slog.Any("input", map[string]interface{}{
+			slog.Any("input", map[string]any{
 				"job_type":       jobType,
 				"requested_size": w.cfg.BatchSize,
 			}),
-			slog.Any("output", map[string]interface{}{
+			slog.Any("output", map[string]any{
 				"locked_count": len(jobsList),
 			}),
 		),
@@ -110,7 +110,7 @@ func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRe
 	if err != nil {
 		jobLogger.Warn("Content fetch failed",
 			"event", slog.GroupValue(slog.String("name", "CONTENT_FETCH_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(fetchDuration.Microseconds())/1000.0)),
-			"details", slog.GroupValue(slog.Any("input", map[string]interface{}{"url": job.URL}), slog.Any("output", map[string]interface{}{"error": err.Error()})),
+			"details", slog.GroupValue(slog.Any("input", map[string]any{"url": job.URL}), slog.Any("output", map[string]any{"error": err.Error()})),
 		)
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: err.Error()})
 		return nil
@@ -119,8 +119,8 @@ func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRe
 	jobLogger.Info("Content fetch completed",
 		"event", slog.GroupValue(slog.String("name", "CONTENT_FETCH_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(fetchDuration.Microseconds())/1000.0)),
 		"details", slog.GroupValue(
-			slog.Any("input", map[string]interface{}{"url": job.URL}),
-			slog.Any("output", map[string]interface{}{
+			slog.Any("input", map[string]any{"url": job.URL}),
+			slog.Any("output", map[string]any{
 				"final_url":        content.FinalURL,
 				"is_html":          !content.IsNonHTML,
 				"is_csr":           content.IsCSR,
@@ -226,22 +226,14 @@ func (w *Worker) processCrawlTask(ctx context.Context, job domain.URLRecord, job
 	return nil
 }
 
-// =================================================================================
-// MODIFIED SECTION: This logic has been completely rewritten for the new architecture.
-// =================================================================================
 func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, content *domain.FetchedContent, jobLogger *slog.Logger) (int, error) {
 	logicStart := time.Now()
 
-	// Step 1: Extract all raw links from the page.
 	newLinksRaw := w.crawler.ExtractLinks(content.GoqueryDoc, content.FinalURL, w.cfg.IgnoreExtensions)
 	if len(newLinksRaw) == 0 {
 		return 0, nil
 	}
 
-	// Step 2: Check against the bloom filter and database for existing URLs.
-	// This is still a necessary step to prevent adding duplicates.
-	// The bloom filter is used inside processLinkBatches, which is called by the linkWriter.
-	// For the purpose of this function, we will rely on the DB check as the final arbiter.
 	existingURLsRows, err := w.storage.Queries.GetExistingURLs(ctx, newLinksRaw)
 	if err != nil {
 		return 0, fmt.Errorf("crawl-logic: failed to check existing urls: %w", err)
@@ -251,13 +243,10 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 		existingURLs[urlStr] = struct{}{}
 	}
 
-	// Step 3: Pre-filter the links and group them by netloc.
-	// We do this BEFORE calling Redis to avoid unnecessary network calls for links that are invalid
-	// or have already been processed.
 	candidatesByNetloc := make(map[string][]string)
 	for _, link := range newLinksRaw {
 		if _, exists := existingURLs[link]; exists {
-			continue // Skip already known URLs.
+			continue
 		}
 
 		parsed, err := url.Parse(link)
@@ -266,7 +255,6 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 		}
 		netloc := parsed.Host
 
-		// This is the preserved business logic for restricted TLDs.
 		isRestricted := false
 		for _, tld := range w.cfg.RestrictedTLDs {
 			if strings.HasSuffix(netloc, tld) {
@@ -294,8 +282,6 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 		return 0, nil
 	}
 
-	// Step 4: Atomically reserve slots for each netloc using the Redis Lua script.
-	// This is done concurrently for maximum performance.
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var finalLinksToQueue []domain.NewLink
@@ -304,7 +290,6 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 		wg.Add(1)
 		go func(n string, u []string) {
 			defer wg.Done()
-			// The ReserveNetlocSlots function now handles the atomic check and increment.
 			acceptedURLs, err := w.storage.ReserveNetlocSlots(ctx, n, u)
 			if err != nil {
 				jobLogger.Error("Failed to reserve netloc slots from Redis", "netloc", n, "error", err)
@@ -316,7 +301,7 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 					finalLinksToQueue = append(finalLinksToQueue, domain.NewLink{
 						URL:    acceptedURL,
 						Netloc: n,
-						Status: domain.PendingClassification, // Always default to pending classification.
+						Status: domain.PendingClassification,
 					})
 				}
 				mu.Unlock()
@@ -325,7 +310,6 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 	}
 	wg.Wait()
 
-	// Step 5: Enqueue the batch of links that were successfully reserved.
 	if len(finalLinksToQueue) > 0 {
 		w.storage.EnqueueLinks(domain.LinkBatch{SourceURLID: job.ID, NewLinks: finalLinksToQueue})
 	}
@@ -334,8 +318,8 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 	jobLogger.Info("Link filtering and reservation completed",
 		"event", slog.GroupValue(slog.String("name", "LINK_FILTERING_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(logicDuration.Microseconds())/1000.0)),
 		"details", slog.GroupValue(
-			slog.Any("input", map[string]interface{}{"raw_link_count": len(newLinksRaw)}),
-			slog.Any("output", map[string]interface{}{"queued_link_count": len(finalLinksToQueue)}),
+			slog.Any("input", map[string]any{"raw_link_count": len(newLinksRaw)}),
+			slog.Any("output", map[string]any{"queued_link_count": len(finalLinksToQueue)}),
 		),
 	)
 

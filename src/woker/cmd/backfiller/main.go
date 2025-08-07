@@ -21,48 +21,31 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
-"github.com/pgvector/pgvector-go"
-pgxvec "github.com/pgvector/pgvector-go/pgx"
+	"github.com/pgvector/pgvector-go"
+	pgxvec "github.com/pgvector/pgvector-go/pgx"
 	"golang.org/x/sync/errgroup"
 )
 
-// --- Configuration ---
-
 const (
-	// GeminiAPIURL is the endpoint for batch embedding generation.
-	GeminiAPIURL = "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:batchEmbedContents"
-	// GeminiModel is the specific model to use for embedding.
-	GeminiModel = "models/text-embedding-004"
-
-	// TaskType instructs the model to optimize embeddings for document retrieval.
-	TaskType = "RETRIEVAL_DOCUMENT"
-
-	// OutputDimensionality is the desired size of the embedding vector.
+	GeminiAPIURL         = "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:batchEmbedContents"
+	GeminiModel          = "models/text-embedding-004"
+	TaskType             = "RETRIEVAL_DOCUMENT"
 	OutputDimensionality = 256
-
-	// MaxContentLength is the number of characters to take from the main content.
-	MaxContentLength = 1500
-
-	// DBBatchSize is the number of rows to fetch from PostgreSQL in one go.
-	DBBatchSize = 500
-	// APIBatchSize is the number of texts to send to the Gemini API in a single request.
-	// Google's API has a limit, 100 is a safe and effective number.
-	APIBatchSize = 100
-	// ConcurrencyLimit limits how many parallel requests are sent to the Gemini API.
-	ConcurrencyLimit = 8
+	MaxContentLength     = 1500
+	DBBatchSize          = 500
+	APIBatchSize         = 100
+	ConcurrencyLimit     = 8
 )
-
-// --- API Request and Response Structures ---
 
 type GeminiRequest struct {
 	Requests []EmbedRequest `json:"requests"`
 }
 
 type EmbedRequest struct {
-	Model   string        `json:"model"`
-	Content Content       `json:"content"`
-	Task    string        `json:"task_type"`
-	Output  int           `json:"output_dimensionality"`
+	Model   string  `json:"model"`
+	Content Content `json:"content"`
+	Task    string  `json:"task_type"`
+	Output  int     `json:"output_dimensionality"`
 }
 
 type Content struct {
@@ -81,9 +64,6 @@ type Embedding struct {
 	Values []float32 `json:"values"`
 }
 
-// --- Database and Worker Structures ---
-
-// DBRecord holds the data fetched from the url_content table.
 type DBRecord struct {
 	URLID       int64
 	Title       pgtype.Text
@@ -91,7 +71,6 @@ type DBRecord struct {
 	Content     pgtype.Text
 }
 
-// Embedder holds the necessary clients and configuration for the backfill process.
 type Embedder struct {
 	db     *pgxpool.Pool
 	client *http.Client
@@ -106,21 +85,13 @@ func NewEmbedder(db *pgxpool.Pool, apiKey string) *Embedder {
 	}
 }
 
-// --- Main Execution Logic ---
-
 func main() {
-	// 1. Setup structured logging.
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
+	if err := godotenv.Load("../../../../.env"); err != nil {
+		slog.Info("Could not load .env file from project root", "error", err)
+	}
 
-	// 2. Load environment variables from a .env file (if it exists).
-// main.go: line 55
-// The path tells the program to go up three directories to find the .env file.
-if err := godotenv.Load("../../../../.env"); err != nil { 
-    slog.Info("Could not load .env file from project root", "error", err)
-}
-
-	// 3. Get required configuration from the environment.
 	databaseURL := os.Getenv("DATABASE_URL")
 	geminiAPIKey := os.Getenv("GEMINI_API_KEY")
 	if databaseURL == "" || geminiAPIKey == "" {
@@ -128,19 +99,17 @@ if err := godotenv.Load("../../../../.env"); err != nil {
 		os.Exit(1)
 	}
 
-	// 4. Create a cancellable context for graceful shutdown.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// 5. Connect to the PostgreSQL database with pgvector support.
 	dbConfig, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
 		slog.Error("Failed to parse database URL", "error", err)
 		os.Exit(1)
 	}
-dbConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-    return pgxvec.RegisterTypes(ctx, conn)
-}
+	dbConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		return pgxvec.RegisterTypes(ctx, conn)
+	}
 	dbpool, err := pgxpool.NewWithConfig(ctx, dbConfig)
 	if err != nil {
 		slog.Error("Failed to connect to database", "error", err)
@@ -148,7 +117,6 @@ dbConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 	}
 	defer dbpool.Close()
 
-	// 6. Run the backfill process.
 	embedder := NewEmbedder(dbpool, geminiAPIKey)
 	slog.Info("--- Starting Embedding Backfill Process ---")
 	if err := embedder.Run(ctx); err != nil {
@@ -158,7 +126,6 @@ dbConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 	slog.Info("--- Embedding Backfill Process Completed Successfully ---")
 }
 
-// Run orchestrates the entire backfill process, fetching and processing in batches.
 func (e *Embedder) Run(ctx context.Context) error {
 	var offset int
 	var totalProcessed int
@@ -174,7 +141,7 @@ func (e *Embedder) Run(ctx context.Context) error {
 			}
 			if len(records) == 0 {
 				slog.Info("No more records to process.")
-				return nil // We're done.
+				return nil
 			}
 
 			err = e.processDBBatch(ctx, records)
@@ -189,7 +156,6 @@ func (e *Embedder) Run(ctx context.Context) error {
 	}
 }
 
-// fetchBatchFromDB retrieves a slice of records that need embedding.
 func (e *Embedder) fetchBatchFromDB(ctx context.Context, limit, offset int) ([]DBRecord, error) {
 	query := `
 		SELECT url_id, title, description, content
@@ -215,25 +181,17 @@ func (e *Embedder) fetchBatchFromDB(ctx context.Context, limit, offset int) ([]D
 	return records, rows.Err()
 }
 
-// processDBBatch handles the embedding generation and database update for a set of records.
 func (e *Embedder) processDBBatch(ctx context.Context, records []DBRecord) error {
-	// This map will store the final results: url_id -> normalized_embedding.
 	results := new(sync.Map)
-
-	// Use an errgroup to manage concurrent API calls.
 	g, gCtx := errgroup.WithContext(ctx)
 	g.SetLimit(ConcurrencyLimit)
 
-	// Chunk the database records into smaller batches suitable for the API.
 	for i := 0; i < len(records); i += APIBatchSize {
 		end := i + APIBatchSize
-		if end > len(records) {
-			end = len(records)
-		}
+		end = min(end, len(records))
 		chunk := records[i:end]
 
 		g.Go(func() error {
-			// Get embeddings for the current chunk.
 			embeddings, err := e.getEmbeddingsForChunk(gCtx, chunk)
 			if err != nil {
 				return fmt.Errorf("failed to get embeddings for chunk: %w", err)
@@ -242,7 +200,6 @@ func (e *Embedder) processDBBatch(ctx context.Context, records []DBRecord) error
 				return fmt.Errorf("mismatch in embedding count: got %d, want %d", len(embeddings), len(chunk))
 			}
 
-			// Normalize and store the results.
 			for j, embedding := range embeddings {
 				normalizedVector := normalize(embedding.Values)
 				record := chunk[j]
@@ -259,7 +216,6 @@ func (e *Embedder) processDBBatch(ctx context.Context, records []DBRecord) error
 	return e.updateDBWithEmbeddings(ctx, results)
 }
 
-// getEmbeddingsForChunk sends a batch of texts to the Gemini API.
 func (e *Embedder) getEmbeddingsForChunk(ctx context.Context, chunk []DBRecord) ([]Embedding, error) {
 	apiRequests := make([]EmbedRequest, len(chunk))
 	for i, record := range chunk {
@@ -279,7 +235,7 @@ func (e *Embedder) getEmbeddingsForChunk(ctx context.Context, chunk []DBRecord) 
 			}
 			builder.WriteString(content)
 		}
-		
+
 		apiRequests[i] = EmbedRequest{
 			Model:  GeminiModel,
 			Task:   TaskType,
@@ -322,26 +278,24 @@ func (e *Embedder) getEmbeddingsForChunk(ctx context.Context, chunk []DBRecord) 
 	return apiResponse.Embeddings, nil
 }
 
-// updateDBWithEmbeddings writes the new embeddings to the database in a single transaction.
 func (e *Embedder) updateDBWithEmbeddings(ctx context.Context, results *sync.Map) error {
 	tx, err := e.db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback(ctx) // Rollback is a no-op if the transaction is committed.
+	defer tx.Rollback(ctx)
 
 	updateQuery := `UPDATE url_content SET embedding = $1 WHERE url_id = $2`
 	var updateCount int
 
 	var errs []error
-	results.Range(func(key, value interface{}) bool {
+	results.Range(func(key, value any) bool {
 		urlID := key.(int64)
 		embedding := value.([]float32)
 
 		_, err := tx.Exec(ctx, updateQuery, pgvector.NewVector(embedding), urlID)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed to update url_id %d: %w", urlID, err))
-			// Stop iterating on the first error.
 			return false
 		}
 		updateCount++
@@ -356,7 +310,6 @@ func (e *Embedder) updateDBWithEmbeddings(ctx context.Context, results *sync.Map
 	return tx.Commit(ctx)
 }
 
-// normalize converts a vector to a unit vector (magnitude of 1).
 func normalize(v []float32) []float32 {
 	var sumOfSquares float64
 	for _, val := range v {
@@ -365,7 +318,7 @@ func normalize(v []float32) []float32 {
 	norm := float32(math.Sqrt(sumOfSquares))
 
 	if norm == 0 {
-		return v // Cannot normalize a zero vector.
+		return v
 	}
 
 	normalized := make([]float32, len(v))

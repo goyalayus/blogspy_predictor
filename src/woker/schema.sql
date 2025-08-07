@@ -68,4 +68,3 @@ CREATE INDEX idx_urls_pending_crawl ON urls (id) WHERE status = 'pending_crawl';
 CREATE INDEX idx_url_content_search_vector ON url_content USING GIN(search_vector);
 CREATE INDEX idx_url_content_embedding ON url_content USING hnsw (embedding vector_cosine_ops);
 INSERT INTO system_counters (counter_name) VALUES ('pending_urls_count');
-
