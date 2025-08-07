@@ -52,6 +52,22 @@ services:
     networks: [app-net]
     depends_on: [redis, opensearch-node]
 
+  go-backfiller:
+    build:
+      context: ./src/woker
+      dockerfile: Dockerfile
+    container_name: go-backfiller
+    restart: "no"
+    command: ["/backfiller"]
+    ports:
+      - "9094:9094"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    networks: [app-net]
+    depends_on:
+      - redis
+
   prometheus:
     image: prom/prometheus:v2.53.0
     container_name: prometheus
