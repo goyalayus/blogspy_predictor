@@ -20,4 +20,4 @@ COPY --chown=appuser:appuser outputs ./outputs
 USER appuser
 ENV PATH="/opt/venv/bin:$PATH"
 ENV MODEL_PATH="/app/outputs/models/lgbm_final_model.joblib"
-ENTRYPOINT ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["python", "src/consumer.py"]
