@@ -1,3 +1,9 @@
+-- Enables the vector data type and functions.
+-- This must be run by a database superuser one time.
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- ========= Custom Types =========
+
 CREATE TYPE crawl_status AS ENUM (
     'pending_classification',
     'pending_crawl',
@@ -13,29 +19,7 @@ CREATE TYPE rendering_type AS ENUM (
     'CSR'
 );
 
-CREATE TABLE "orange_users" (
-    "id" serial PRIMARY KEY NOT NULL,
-    "google_id" text NOT NULL,
-    "email" varchar NOT NULL,
-    "name" text NOT NULL,
-    "picture" text NOT NULL,
-    CONSTRAINT "orange_users_google_id_unique" UNIQUE("google_id"),
-    CONSTRAINT "orange_users_email_unique" UNIQUE("email")
-);
-
-CREATE TABLE "orange_sessions" (
-    "id" text PRIMARY KEY NOT NULL,
-    "user_id" integer NOT NULL,
-    "expires_at" timestamp with time zone NOT NULL
-);
-
-CREATE TABLE "search_history" (
-    "id" BIGSERIAL PRIMARY KEY,
-    "user_id" INTEGER REFERENCES orange_users(id) ON DELETE SET NULL,
-    "ip_address" TEXT,
-    "query" TEXT NOT NULL,
-    "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+-- ========= Core Tables =========
 
 CREATE TABLE urls (
     id BIGSERIAL PRIMARY KEY,
@@ -55,7 +39,9 @@ CREATE TABLE url_content (
     description TEXT,
     content TEXT,
     -- This column will store pre-computed tsvector for full-text search
-    search_vector tsvector
+    search_vector tsvector,
+    -- This column will store the 256-dimension vector embedding
+    embedding vector(256)
 );
 
 CREATE TABLE url_edges (
@@ -64,19 +50,13 @@ CREATE TABLE url_edges (
     PRIMARY KEY (source_url_id, dest_url_id)
 );
 
--- System & Helper Tables
+-- ========= System & Helper Tables =========
+
 CREATE TABLE system_counters (
     counter_name TEXT PRIMARY KEY,
     value BIGINT NOT NULL DEFAULT 0,
     updated_at TIMESTAMPTZ
 );
-
--- DELETED: The 'netloc_counts' table was here.
-
--- ========= Foreign Keys =========
-ALTER TABLE "orange_sessions" ADD CONSTRAINT "orange_sessions_user_id_orange_users_id_fk" 
-    FOREIGN KEY ("user_id") REFERENCES "public"."orange_users"("id") 
-    ON DELETE CASCADE ON UPDATE NO ACTION;
 
 
 -- ========= Full-Text Search Function & Trigger =========
@@ -97,20 +77,18 @@ ON url_content FOR EACH ROW EXECUTE PROCEDURE url_content_search_vector_update()
 
 
 -- ========= Indexes =========
--- User management indexes
-CREATE INDEX "session_user_id_idx" ON "orange_sessions" USING btree ("user_id");
-CREATE INDEX "google_id_idx" ON "orange_users" USING btree ("google_id");
-CREATE INDEX "email_idx" ON "orange_users" USING btree ("email");
-CREATE INDEX "idx_search_history_user_id" ON "search_history" USING btree ("user_id");
-CREATE INDEX "idx_search_history_ip_address" ON "search_history" USING btree ("ip_address") WHERE "user_id" IS NULL;
 
--- Crawler indexes
+-- Crawler-specific indexes
 CREATE INDEX idx_urls_netloc ON urls (netloc);
 CREATE INDEX idx_urls_pending_classification ON urls (id) WHERE status = 'pending_classification';
 CREATE INDEX idx_urls_pending_crawl ON urls (id) WHERE status = 'pending_crawl';
 
--- Full-text search index (crucial for performance)
+-- Full-text search index (crucial for FTS performance)
 CREATE INDEX idx_url_content_search_vector ON url_content USING GIN(search_vector);
+
+-- Vector search index (crucial for vector similarity search performance)
+-- Using HNSW with cosine distance for high-performance, accurate vector search.
+CREATE INDEX idx_url_content_embedding ON url_content USING hnsw (embedding vector_cosine_ops);
 
 
 -- ========= Initial Data =========
