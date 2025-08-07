@@ -11,6 +11,7 @@ import (
 	"worker/packages/config"
 	"worker/packages/domain"
 	"worker/packages/generated"
+	"worker/packages/metrics"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -21,7 +22,7 @@ import (
 const (
 	pendingURLCountLimit = 50000
 	pendingCounterName   = "pending_urls_count"
-	netlocCountsKey = "blogspy:netloc_counts"
+	netlocCountsKey      = "blogspy:netloc_counts"
 )
 
 const reserveNetlocSlotsLua = `
@@ -104,6 +105,21 @@ func New(ctx context.Context, cfg config.Config) (*Storage, error) {
 	slog.Info("Asynchronous database writers started", "count", 3)
 
 	return s, nil
+}
+
+func (s *Storage) GetTotalURLCount(ctx context.Context) (int64, error) {
+	return s.Queries.GetTotalURLCount(ctx)
+}
+
+func (s *Storage) RefreshTotalURLCount(ctx context.Context) error {
+	count, err := s.GetTotalURLCount(ctx)
+	if err != nil {
+		slog.Error("Failed to get total URL count from DB", "error", err)
+		return err
+	}
+	metrics.TotalURLs.Set(float64(count))
+	slog.Info("Refreshed total URL count metric", "count", count)
+	return nil
 }
 
 func (s *Storage) RehydrateNetlocCounts(ctx context.Context) error {
@@ -525,10 +541,13 @@ func (s *Storage) LockJobs(ctx context.Context, fromStatus, toStatus generated.C
 
 	err := s.WithTransaction(ctx, func(qtx *generated.Queries, tx pgx.Tx) error {
 		var err error
+		start := time.Now()
 		jobs, err = qtx.LockJobsForUpdate(ctx, generated.LockJobsForUpdateParams{
 			Status: fromStatus,
 			Limit:  limit,
 		})
+		duration := time.Since(start)
+		metrics.DBQueryDuration.WithLabelValues("LockJobsForUpdate").Observe(duration.Seconds())
 		if err != nil {
 			return fmt.Errorf("failed to lock jobs: %w", err)
 		}

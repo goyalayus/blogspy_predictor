@@ -23,11 +23,9 @@ func (q *Queries) CountPendingURLs(ctx context.Context) (int64, error) {
 }
 
 const getCounterValue = `-- name: GetCounterValue :one
-
 SELECT value FROM system_counters WHERE counter_name = $1
 `
 
-// QUERIES FOR THE REAPER AND THROTTLING MECHANISM
 func (q *Queries) GetCounterValue(ctx context.Context, counterName string) (int64, error) {
 	row := q.db.QueryRow(ctx, getCounterValue, counterName)
 	var value int64
@@ -36,12 +34,10 @@ func (q *Queries) GetCounterValue(ctx context.Context, counterName string) (int6
 }
 
 const getExistingURLs = `-- name: GetExistingURLs :many
-
 SELECT url FROM urls
 WHERE url = ANY($1::text[])
 `
 
-// DELETED: The 'GetNetlocCounts' query was here.
 func (q *Queries) GetExistingURLs(ctx context.Context, urls []string) ([]string, error) {
 	rows, err := q.db.Query(ctx, getExistingURLs, urls)
 	if err != nil {
@@ -62,8 +58,18 @@ func (q *Queries) GetExistingURLs(ctx context.Context, urls []string) ([]string,
 	return items, nil
 }
 
-const lockJobsForUpdate = `-- name: LockJobsForUpdate :many
+const getTotalURLCount = `-- name: GetTotalURLCount :one
+SELECT count(*)::bigint FROM urls
+`
 
+func (q *Queries) GetTotalURLCount(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, getTotalURLCount)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const lockJobsForUpdate = `-- name: LockJobsForUpdate :many
 SELECT id, url FROM urls
 WHERE status = $1
 FOR UPDATE SKIP LOCKED
@@ -80,8 +86,6 @@ type LockJobsForUpdateRow struct {
 	Url string
 }
 
-// - FILE: src/woker/query.sql ---
-// woker/query.sql
 func (q *Queries) LockJobsForUpdate(ctx context.Context, arg LockJobsForUpdateParams) ([]LockJobsForUpdateRow, error) {
 	rows, err := q.db.Query(ctx, lockJobsForUpdate, arg.Status, arg.Limit)
 	if err != nil {
@@ -120,8 +124,6 @@ WHERE
 `
 
 // DELETED: The 'RefreshNetlocCounts' query was here.
-// MODIFIED: Rewritten to use a more robust NOT EXISTS pattern.
-// This finds 'completed' jobs whose content was lost due to a crash.
 func (q *Queries) ResetOrphanedCompletedJobs(ctx context.Context) (int64, error) {
 	result, err := q.db.Exec(ctx, resetOrphanedCompletedJobs)
 	if err != nil {

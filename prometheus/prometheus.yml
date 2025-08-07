@@ -6,6 +6,10 @@ scrape_configs:
     static_configs:
       - targets: ['go-worker:9091']
 
+  - job_name: 'go-reaper'
+    static_configs:
+      - targets: ['go-reaper:9093']
+
   - job_name: 'python-api'
     static_configs:
       - targets: ['python-api:9092']

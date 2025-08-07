@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/pgvector/pgvector-go"
 )
 
 type CrawlStatus string
@@ -100,28 +101,6 @@ func (ns NullRenderingType) Value() (driver.Value, error) {
 	return string(ns.RenderingType), nil
 }
 
-type OrangeSession struct {
-	ID        string
-	UserID    int32
-	ExpiresAt pgtype.Timestamptz
-}
-
-type OrangeUser struct {
-	ID       int32
-	GoogleID string
-	Email    string
-	Name     string
-	Picture  string
-}
-
-type SearchHistory struct {
-	ID        int64
-	UserID    pgtype.Int4
-	IpAddress pgtype.Text
-	Query     string
-	CreatedAt pgtype.Timestamptz
-}
-
 type SystemCounter struct {
 	CounterName string
 	Value       int64
@@ -146,6 +125,7 @@ type UrlContent struct {
 	Description  pgtype.Text
 	Content      pgtype.Text
 	SearchVector interface{}
+	Embedding    pgvector.Vector
 }
 
 type UrlEdge struct {

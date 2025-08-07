@@ -1,6 +1,3 @@
---- FILE: src/woker/query.sql ---
--- woker/query.sql
-
 -- name: LockJobsForUpdate :many
 SELECT id, url FROM urls
 WHERE status = $1
@@ -24,13 +21,9 @@ WHERE
     status IN ('classifying'::crawl_status, 'crawling'::crawl_status)
     AND locked_at < NOW() - sqlc.arg('timeout_interval')::interval;
 
--- DELETED: The 'GetNetlocCounts' query was here.
-
 -- name: GetExistingURLs :many
 SELECT url FROM urls
 WHERE url = ANY(@urls::text[]);
-
--- QUERIES FOR THE REAPER AND THROTTLING MECHANISM
 
 -- name: GetCounterValue :one
 SELECT value FROM system_counters WHERE counter_name = $1;
@@ -43,8 +36,6 @@ SELECT count(*)::bigint FROM urls WHERE status IN ('pending_classification', 'pe
 
 -- DELETED: The 'RefreshNetlocCounts' query was here.
 
--- MODIFIED: Rewritten to use a more robust NOT EXISTS pattern.
--- This finds 'completed' jobs whose content was lost due to a crash.
 -- name: ResetOrphanedCompletedJobs :execrows
 UPDATE urls u
 SET
@@ -59,3 +50,6 @@ WHERE
         FROM url_content uc
         WHERE uc.url_id = u.id
     );
+
+-- name: GetTotalURLCount :one
+SELECT count(*)::bigint FROM urls;

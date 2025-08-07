@@ -12,6 +12,7 @@ import (
 	"time"
 	"worker/packages/config"
 	"worker/packages/db"
+	"worker/packages/metrics"
 
 	"gopkg.in/natefinch/lumberjack.v2"
 )
@@ -79,6 +80,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	go metrics.ExposeMetrics("0.0.0.0:9093")
+
 	storage, err := db.New(ctx, cfg)
 	if err != nil {
 		slog.Error("Failed to initialize database", "error", err)
@@ -86,10 +89,8 @@ func main() {
 	}
 	defer storage.Close()
 
-	mainTicker := time.NewTicker(20 * time.Second)
+	mainTicker := time.NewTicker(10 * time.Second)
 	defer mainTicker.Stop()
-
-	// REMOVED: netlocCacheTicker is no longer needed.
 
 	stalledJobTicker := time.NewTicker(15 * time.Minute)
 	defer stalledJobTicker.Stop()
@@ -98,17 +99,14 @@ func main() {
 	defer orphanCheckTicker.Stop()
 
 	slog.Info("Reaper tasks scheduled",
-		"pending_count_refresh", "20s",
+		"url_counts_refresh", "10s",
 		"stalled_job_reset", "15m",
 		"orphan_job_check", "30m",
 	)
 
-	// --- MODIFIED: Startup tasks now include Redis rehydration ---
 	go func() {
-		// This is a new, critical step for ensuring Redis has the right counts on startup.
 		if err := storage.RehydrateNetlocCounts(ctx); err != nil {
 			slog.Error("FATAL: Netloc count rehydration failed on startup. Workers may behave incorrectly.", "error", err)
-			// In a real production system, you might want to os.Exit(1) here.
 		}
 
 		if err := storage.RehydrateBloomFilter(context.Background()); err != nil {
@@ -116,6 +114,7 @@ func main() {
 		}
 
 		_ = storage.RefreshPendingURLCount(ctx)
+		_ = storage.RefreshTotalURLCount(ctx)
 		_ = storage.ResetStalledJobs(ctx)
 		_ = storage.ResetOrphanedJobs(ctx)
 	}()
@@ -129,7 +128,9 @@ func main() {
 			if err := storage.RefreshPendingURLCount(ctx); err != nil {
 				slog.Error("Failed to refresh pending URL count", "error", err)
 			}
-		// REMOVED: The netlocCacheTicker case is gone.
+			if err := storage.RefreshTotalURLCount(ctx); err != nil {
+				slog.Error("Failed to refresh total URL count", "error", err)
+			}
 		case <-stalledJobTicker.C:
 			if err := storage.ResetStalledJobs(ctx); err != nil {
 				slog.Error("Failed to reset stalled jobs", "error", err)
