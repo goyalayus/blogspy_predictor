@@ -1,6 +1,8 @@
 services:
   python-api:
-    build: { context: ., dockerfile: Dockerfile }
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: python-api
     restart: unless-stopped
     ports:
@@ -8,7 +10,6 @@ services:
       - "9092:9092"
     volumes: ["./logs:/app/logs"]
     environment:
-      - DATABASE_URL=${DATABASE_URL}
       - LOG_FILE=/app/logs/python_api.log
       - LOG_LEVEL=${LOG_LEVEL}
     networks: [app-net]
@@ -18,6 +19,8 @@ services:
     build:
       context: ./src/woker
       dockerfile: Dockerfile
+      args:
+        APP_NAME: worker
     container_name: go-worker
     restart: unless-stopped
     command: ["/worker"]
@@ -26,8 +29,8 @@ services:
     volumes: ["./logs:/app/logs"]
     environment:
       - DATABASE_URL=${DATABASE_URL}
-      - ML_API_URL=http://python-api:8000
       - REDIS_ADDR=redis:6379
+      - ML_API_URL=http://python-api:8000
       - LOG_FILE=/app/logs/worker.log
       - LOG_LEVEL=${LOG_LEVEL}
     networks: [app-net]
@@ -37,6 +40,8 @@ services:
     build:
       context: ./src/woker
       dockerfile: Dockerfile
+      args:
+        APP_NAME: reaper
     container_name: go-reaper
     restart: unless-stopped
     command: ["/reaper"]
@@ -48,14 +53,15 @@ services:
       - REDIS_ADDR=redis:6379
       - LOG_FILE=/app/logs/reaper.log
       - LOG_LEVEL=${LOG_LEVEL}
-      - ML_API_URL=http://python-api:8000
     networks: [app-net]
-    depends_on: [redis, opensearch-node]
+    depends_on: [redis]
 
   go-backfiller:
     build:
       context: ./src/woker
       dockerfile: Dockerfile
+      args:
+        APP_NAME: backfiller
     container_name: go-backfiller
     restart: "no"
     command: ["/backfiller"]
@@ -64,6 +70,8 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - LOG_FILE=/app/logs/backfiller.log
+      - LOG_LEVEL=${LOG_LEVEL}
     networks: [app-net]
     depends_on:
       - redis
