@@ -53,6 +53,7 @@ services:
       - REDIS_ADDR=redis:6379
       - LOG_FILE=/app/logs/reaper.log
       - LOG_LEVEL=${LOG_LEVEL}
+      - ML_API_URL=${ML_API_URL}
     networks: [app-net]
     depends_on: [redis]
 
@@ -104,6 +105,15 @@ services:
     volumes: [redis-data:/data]
     networks: [app-net]
     healthcheck: { test: ["CMD", "redis-cli", "-h", "localhost", "-p", "6379", "ping"], interval: 10s, timeout: 5s, retries: 5 }
+  
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: redis-exporter
+    restart: unless-stopped
+    command: -redis.addr redis:6379  # Tells the exporter where to find Redis
+    networks: [app-net]
+    depends_on:
+      - redis
 
   opensearch-node:
     image: opensearchproject/opensearch:2.15.0

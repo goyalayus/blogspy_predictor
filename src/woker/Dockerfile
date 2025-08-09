@@ -15,4 +15,3 @@ COPY --from=builder --chmod=0755 /worker /worker
 COPY --from=builder --chmod=0755 /reaper /reaper
 COPY --from=builder --chmod=0755 /backfiller /backfiller
 USER nonroot:nonroot
-ENTRYPOINT ["/worker"]

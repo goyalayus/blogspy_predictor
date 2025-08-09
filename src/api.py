@@ -180,6 +180,10 @@ async def lifespan(app: FastAPI):
     Handles application startup. It will load the model and fail fast if it can't.
     """
     logger.info("--- Application startup sequence initiated ---")
+    
+    # This now correctly adds the /metrics endpoint to the main app on port 8000
+    instrumentator.expose(app, include_in_schema=False)
+
     app.state.model_path = str(MODEL_PATH.resolve())
 
     if not MODEL_PATH.exists():
@@ -243,11 +247,6 @@ app = FastAPI(
 )
 
 instrumentator = Instrumentator().instrument(app)
-
-
-@app.on_event("startup")
-async def _startup():
-    instrumentator.expose(app, endpoint="/metrics", port=9092, include_in_schema=False)
 
 
 @app.middleware("http")
