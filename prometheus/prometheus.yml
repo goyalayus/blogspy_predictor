@@ -12,13 +12,17 @@ scrape_configs:
 
   - job_name: 'python-api'
     static_configs:
-      # Change this line from 9092 to 8000
       - targets: ['python-api:8000']
-
-  - job_name: 'go-backfiller'
-    static_configs:
-      - targets: ['go-backfiller:9094']
 
   - job_name: 'redis-exporter'
     static_configs:
-      - targets: ['redis-exporter:9121'] # 9121 is the default port for this exporter
+      - targets: ['redis-exporter:9121']
+
+  - job_name: 'postgres-exporter'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+
+  - job_name: 'node-exporter'
+    static_configs:
+      # NOTE: Remember to use your actual IP here
+      - targets: ['10.61.61.146:9100']

@@ -108,6 +108,11 @@ func New(ctx context.Context, cfg config.Config) (*Storage, error) {
 }
 
 func (s *Storage) GetTotalURLCount(ctx context.Context) (int64, error) {
+	// METRICS: Time this query.
+	start := time.Now()
+	defer func() {
+		metrics.DBQueryDuration.WithLabelValues("GetTotalURLCount").Observe(time.Since(start).Seconds())
+	}()
 	return s.Queries.GetTotalURLCount(ctx)
 }
 
@@ -135,6 +140,10 @@ func (s *Storage) RehydrateNetlocCounts(ctx context.Context) error {
 
 	slog.Warn("Netloc counts not found in Redis. Starting rehydration from PostgreSQL. This may be slow.")
 	start := time.Now()
+	// METRICS: Defer timing observation for the whole function.
+	defer func() {
+		metrics.DBQueryDuration.WithLabelValues("RehydrateNetlocCounts").Observe(time.Since(start).Seconds())
+	}()
 
 	rows, err := s.DB.Query(ctx, `SELECT netloc, count(id) FROM urls GROUP BY netloc`)
 	if err != nil {
@@ -278,6 +287,9 @@ func (s *Storage) ResetStalledJobs(ctx context.Context) error {
 	}
 	err := s.Queries.ResetStalledJobs(ctx, interval)
 	duration := time.Since(start)
+	// METRICS: Observe query duration.
+	metrics.DBQueryDuration.WithLabelValues("ResetStalledJobs").Observe(duration.Seconds())
+
 	if err != nil {
 		slog.Error("Stalled job reset failed",
 			"event", slog.GroupValue(slog.String("name", "STALLED_JOB_RESET_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(duration.Microseconds())/1000.0)),
@@ -295,6 +307,8 @@ func (s *Storage) ResetOrphanedJobs(ctx context.Context) error {
 	start := time.Now()
 	rowsAffected, err := s.Queries.ResetOrphanedCompletedJobs(ctx)
 	duration := time.Since(start)
+	// METRICS: Observe query duration.
+	metrics.DBQueryDuration.WithLabelValues("ResetOrphanedCompletedJobs").Observe(duration.Seconds())
 
 	if err != nil {
 		slog.Error("Orphaned job reset failed",
@@ -314,6 +328,11 @@ func (s *Storage) ResetOrphanedJobs(ctx context.Context) error {
 }
 
 func (s *Storage) GetPendingURLCount(ctx context.Context) (int64, error) {
+	// METRICS: Time this query.
+	start := time.Now()
+	defer func() {
+		metrics.DBQueryDuration.WithLabelValues("GetPendingURLCount").Observe(time.Since(start).Seconds())
+	}()
 	return s.Queries.GetCounterValue(ctx, pendingCounterName)
 }
 
@@ -328,6 +347,9 @@ func (s *Storage) RefreshPendingURLCount(ctx context.Context) error {
 		CounterName: pendingCounterName,
 	})
 	duration := time.Since(start)
+	// METRICS: Observe query duration.
+	metrics.DBQueryDuration.WithLabelValues("RefreshPendingURLCount").Observe(duration.Seconds())
+
 	if err != nil {
 		return fmt.Errorf("failed to update counter value: %w", err)
 	}
@@ -343,6 +365,11 @@ func (s *Storage) RefreshPendingURLCount(ctx context.Context) error {
 
 func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkBatch) {
 	start := time.Now()
+	// METRICS: Defer timing observation for the whole function.
+	defer func() {
+		metrics.DBQueryDuration.WithLabelValues("processLinkBatches").Observe(time.Since(start).Seconds())
+	}()
+
 	count, err := s.GetPendingURLCount(ctx)
 	if err != nil {
 		slog.Error("Link Writer: Failed to get pending URL count for throttling check", "error", err)
@@ -371,7 +398,11 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 		candidateURLInterfaces[i] = v
 	}
 
+	// METRICS: Time the Bloom Filter check.
+	redisStart := time.Now()
 	existsResult, err := s.RedisClient.BFMExists(ctx, s.cfg.BloomFilterKey, candidateURLInterfaces...).Result()
+	metrics.DependencyCallDurationSeconds.WithLabelValues("redis_bloom_exists").Observe(time.Since(redisStart).Seconds())
+
 	if err != nil {
 		slog.Error("Bloom filter check failed, falling back to full DB check.", "error", err)
 	}
@@ -496,8 +527,12 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 		for i, v := range newlyAddedURLs {
 			newlyAddedInterfaces[i] = v
 		}
+		// METRICS: Time the Bloom Filter add.
+		redisAddStart := time.Now()
+		_, err := s.RedisClient.BFMAdd(ctx, s.cfg.BloomFilterKey, newlyAddedInterfaces...).Result()
+		metrics.DependencyCallDurationSeconds.WithLabelValues("redis_bloom_add").Observe(time.Since(redisAddStart).Seconds())
 
-		if _, err := s.RedisClient.BFMAdd(ctx, s.cfg.BloomFilterKey, newlyAddedInterfaces...).Result(); err != nil {
+		if err != nil {
 			slog.Error("Failed to add new URLs to Bloom filter", "error", err, "count", len(newlyAddedURLs))
 		} else {
 			slog.Debug("Added new URLs to Bloom filter", "count", len(newlyAddedURLs))
@@ -604,7 +639,11 @@ func (s *Storage) RehydrateBloomFilter(ctx context.Context) error {
 			return errors.New("bloom filter rehydration cancelled")
 		default:
 			slog.Info("Fetching URL batch from database for rehydration...", "offset", offset, "batch_size", batchSize)
+			// METRICS: Time this DB call.
+			dbReadStart := time.Now()
 			rows, err := s.DB.Query(ctx, `SELECT url FROM urls LIMIT $1 OFFSET $2`, batchSize, offset)
+			metrics.DBQueryDuration.WithLabelValues("RehydrateBloomFilter_ReadBatch").Observe(time.Since(dbReadStart).Seconds())
+
 			if err != nil {
 				return fmt.Errorf("rehydration failed: could not query urls table: %w", err)
 			}
@@ -622,8 +661,12 @@ func (s *Storage) RehydrateBloomFilter(ctx context.Context) error {
 				slog.Info("Bloom filter rehydration complete.", "total_urls_added", totalAdded)
 				return nil
 			}
+			// METRICS: Time this Redis call.
+			redisAddStart := time.Now()
+			_, err = s.RedisClient.BFMAdd(ctx, s.cfg.BloomFilterKey, urlBatch...).Result()
+			metrics.DependencyCallDurationSeconds.WithLabelValues("redis_bloom_add").Observe(time.Since(redisAddStart).Seconds())
 
-			if _, err := s.RedisClient.BFMAdd(ctx, s.cfg.BloomFilterKey, urlBatch...).Result(); err != nil {
+			if err != nil {
 				return fmt.Errorf("rehydration failed: could not add batch to filter: %w", err)
 			}
 
@@ -674,6 +717,10 @@ func (s *Storage) processStatusUpdates(ctx context.Context, batch []domain.Statu
 		return
 	}
 	start := time.Now()
+	// METRICS: Defer timing for this batch update.
+	defer func() {
+		metrics.DBQueryDuration.WithLabelValues("processStatusUpdates").Observe(time.Since(start).Seconds())
+	}()
 
 	var statusSQL, errorMsgSQL, renderingSQL strings.Builder
 	var args []any
@@ -781,6 +828,11 @@ func (s *Storage) processContentInserts(ctx context.Context, batch []domain.Cont
 		return
 	}
 	start := time.Now()
+	// METRICS: Defer timing for this transaction.
+	defer func() {
+		metrics.DBQueryDuration.WithLabelValues("processContentInserts").Observe(time.Since(start).Seconds())
+	}()
+
 	err := s.WithTransaction(ctx, func(qtx *generated.Queries, tx pgx.Tx) error {
 		var ids []int64
 		for _, item := range batch {

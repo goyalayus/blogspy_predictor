@@ -1,4 +1,4 @@
-# verify_prediction.py
+# test.py (modified to accept command-line arguments)
 
 import sys
 import pathlib
@@ -7,9 +7,9 @@ import joblib
 import pandas as pd
 import scipy.sparse as sp
 from bs4 import BeautifulSoup
+import argparse # <-- New import
 
-# --- Setup Project Paths to Import Your Modules ---
-# This ensures the script can find your 'src' folder and its files.
+# --- Setup Project Paths ---
 project_root = pathlib.Path(__file__).parent
 src_path = project_root / "src"
 sys.path.append(str(project_root.resolve()))
@@ -21,95 +21,86 @@ from src.feature_engineering import (
     extract_content_features,
 )
 
-# --- The URL to Test ---
-TARGET_URL = "https://goyalayus.github.io/"
-
-def main():
+def run_prediction_for_url(target_url, model, vectorizer):
     """
     Runs the full fetch, feature engineering, and prediction pipeline
-    for a single URL to verify the model's output.
+    for a single URL and prints the results.
     """
-    print(f"--- Verifying prediction for: {TARGET_URL} ---")
+    print(f"\n--- Analyzing: {target_url} ---")
 
-    # 1. FETCH CONTENT (Mimicking the Go Worker)
-    print("\n[Step 1/5] Fetching web content...")
+    # 1. FETCH CONTENT
     try:
-        response = requests.get(TARGET_URL, headers=REQUEST_HEADERS, timeout=10)
+        response = requests.get(target_url, headers=REQUEST_HEADERS, timeout=10)
         response.raise_for_status()
         html_content = response.text
-        print(f"✅ Successfully fetched {len(html_content)} bytes of HTML.")
     except requests.RequestException as e:
         print(f"❌ Failed to fetch URL: {e}")
         return
 
-    # 2. PARSE & CLEAN CONTENT (Mimicking the Go Worker)
-    print("\n[Step 2/5] Parsing and cleaning HTML content...")
+    # 2. PARSE & CLEAN CONTENT
     soup = BeautifulSoup(html_content, "html.parser")
     for tag in soup(["script", "style"]):
         tag.decompose()
-    
-    # Clean up whitespace similar to how the Go worker would
     text_content = " ".join(soup.get_text().split())
-    print(f"✅ Extracted {len(text_content)} characters of clean text.")
 
-    # 3. LOAD MODEL ARTIFACT
-    print("\n[Step 3/5] Loading pre-trained model and vectorizer...")
+    # 3. RUN PREDICTION PIPELINE
+    data = pd.DataFrame([{
+        "url": target_url,
+        "html_content": html_content,
+        "text_content": text_content,
+    }])
+
+    txt_feat = vectorizer.transform(data["text_content"])
+    url_feats = extract_url_features(data["url"])
+    struct_feats = extract_structural_features(data["html_content"])
+    content_feats = extract_content_features(data["text_content"])
+
+    num_feat_df = pd.concat([url_feats, struct_feats, content_feats], axis=1)
+    num_feat = sp.csr_matrix(num_feat_df.to_numpy(dtype="float32"))
+    features = sp.hstack([txt_feat, num_feat], format="csr")
+
+    prediction_prob = model.predict(features)[0]
+
+    # 4. DISPLAY RESULTS
+    is_personal_blog = prediction_prob > 0.5
+    prediction_label = "PERSONAL_BLOG" if is_personal_blog else "CORPORATE_SEO"
+    confidence = prediction_prob if is_personal_blog else 1 - prediction_prob
+
+    print("--------------------------------------------------")
+    print(f"✅ Results for: {target_url}")
+    print(f"  Prediction: {prediction_label}")
+    print(f"  Confidence: {confidence:.2%}")
+    print("--------------------------------------------------")
+
+
+def main():
+    """
+    Main function to parse arguments, load the model, and process URLs.
+    """
+    # --- New: Set up command-line argument parsing ---
+    parser = argparse.ArgumentParser(
+        description="Classify one or more websites as Personal Blog or Corporate/SEO."
+    )
+    parser.add_argument(
+        "urls", nargs='+', help="The website URL(s) to classify."
+    )
+    args = parser.parse_args()
+    
+    # --- Load Model Artifact (only once) ---
+    print("--- Loading pre-trained model and vectorizer... ---")
     model_path = MODELS_DIR / "lgbm_final_model.joblib"
     try:
         artifact = joblib.load(model_path)
         model = artifact["model"]
         vectorizer = artifact["vectorizer"]
-        print(f"✅ Model artifact loaded successfully from: {model_path}")
-    except FileNotFoundError:
-        print(f"❌ FATAL: Model file not found at {model_path}")
-        return
-    except KeyError:
-        print("❌ FATAL: Model artifact is invalid. Missing 'model' or 'vectorizer' key.")
-        return
+        print(f"✅ Model loaded successfully from: {model_path}")
+    except Exception as e:
+        print(f"❌ FATAL: Could not load model file at {model_path}. Error: {e}")
+        sys.exit(1)
 
-    # 4. RUN PREDICTION PIPELINE (Mimicking the Python API)
-    print("\n[Step 4/5] Running feature engineering and prediction...")
-    
-    # Create a single-row DataFrame to match the input format of our functions
-    data = pd.DataFrame([{
-        "url": TARGET_URL,
-        "html_content": html_content,
-        "text_content": text_content,
-    }])
-
-    # Text Vectorization
-    txt_feat = vectorizer.transform(data["text_content"])
-
-    # Feature Engineering
-    url_feats = extract_url_features(data["url"])
-    struct_feats = extract_structural_features(data["html_content"])
-    content_feats = extract_content_features(data["text_content"])
-
-    # Combine all features in the correct order
-    num_feat_df = pd.concat([url_feats, struct_feats, content_feats], axis=1)
-    num_feat = sp.csr_matrix(num_feat_df.to_numpy(dtype="float32"))
-    features = sp.hstack([txt_feat, num_feat], format="csr")
-
-    print(f"✅ Combined feature vector created with shape: {features.shape}")
-
-    # Make the prediction
-    prediction_prob = model.predict(features)[0]
-
-    # 5. DISPLAY RESULTS
-    print("\n[Step 5/5] Final Results:")
-    print("--------------------------------------------------")
-    
-    is_personal_blog = prediction_prob > 0.5
-    prediction_label = "PERSONAL_BLOG" if is_personal_blog else "CORPORATE_SEO"
-    
-    # Calculate confidence score
-    confidence = prediction_prob if is_personal_blog else 1 - prediction_prob
-
-    print(f"✅ URL: {TARGET_URL}")
-    print(f"  - Raw Probability Score: {prediction_prob:.4f}")
-    print(f"  - Prediction: {prediction_label}")
-    print(f"  - Confidence: {confidence:.2%}")
-    print("--------------------------------------------------")
+    # --- Loop through URLs from command line ---
+    for url in args.urls:
+        run_prediction_for_url(url, model, vectorizer)
 
 
 if __name__ == "__main__":

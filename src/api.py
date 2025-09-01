@@ -14,6 +14,7 @@ import uuid
 from contextlib import asynccontextmanager
 from pythonjsonlogger import jsonlogger
 from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import Histogram # NEW: Import Histogram
 
 project_root = pathlib.Path(__file__).parent.parent
 sys.path.append(str(project_root.resolve()))
@@ -24,6 +25,21 @@ from src.feature_engineering import (
     extract_content_features,
 )
 from src.config import MODELS_DIR
+
+# --- NEW METRICS START HERE ---
+
+ML_PIPELINE_DURATION = Histogram(
+    "blogspy_ml_pipeline_duration_seconds",
+    "Total duration of the ML prediction pipeline."
+)
+ML_FEATURE_ENGINEERING_DURATION = Histogram(
+    "blogspy_ml_feature_engineering_duration_seconds",
+    "Duration of specific feature engineering steps.",
+    ["step"]
+)
+
+# --- NEW METRICS END HERE ---
+
 
 LOG_FILE = os.getenv("LOG_FILE", "logs/python_api.log")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -78,6 +94,7 @@ MODEL_PATH_STR = os.getenv("MODEL_PATH", str(MODELS_DIR / "lgbm_final_model.jobl
 MODEL_PATH = pathlib.Path(MODEL_PATH_STR)
 
 
+@ML_PIPELINE_DURATION.time() # METRICS: This decorator times the entire function.
 def _run_prediction_pipeline(
     data: "PredictionRequest", artifact: dict, logger_adapter: logging.LoggerAdapter
 ) -> tuple[bool, float]:
@@ -87,9 +104,11 @@ def _run_prediction_pipeline(
     pipeline_start = time.perf_counter()
     df = pd.DataFrame([data.dict()])
 
-    vec_start = time.perf_counter()
-    txt_feat = artifact["vectorizer"].transform(df["text_content"].fillna(""))
-    vec_duration = (time.perf_counter() - vec_start) * 1000
+    # METRICS: Time vectorization step
+    with ML_FEATURE_ENGINEERING_DURATION.labels(step="vectorization").time():
+        txt_feat = artifact["vectorizer"].transform(df["text_content"].fillna(""))
+
+    vec_duration = (time.perf_counter() - pipeline_start) * 1000 # Keep original log timing
     logger_adapter.info(
         "Completed text vectorization",
         extra={
@@ -106,9 +125,14 @@ def _run_prediction_pipeline(
     )
 
     feat_start = time.perf_counter()
-    url_feats = extract_url_features(df["url"])
-    struct_feats = extract_structural_features(df["html_content"])
-    content_feats = extract_content_features(df["text_content"])
+    # METRICS: Time each feature engineering step
+    with ML_FEATURE_ENGINEERING_DURATION.labels(step="url_features").time():
+        url_feats = extract_url_features(df["url"])
+    with ML_FEATURE_ENGINEERING_DURATION.labels(step="structural_features").time():
+        struct_feats = extract_structural_features(df["html_content"])
+    with ML_FEATURE_ENGINEERING_DURATION.labels(step="content_features").time():
+        content_feats = extract_content_features(df["text_content"])
+    
     feat_duration = (time.perf_counter() - feat_start) * 1000
     logger_adapter.info(
         "Completed feature engineering",
@@ -181,7 +205,6 @@ async def lifespan(app: FastAPI):
     """
     logger.info("--- Application startup sequence initiated ---")
     
-    # This now correctly adds the /metrics endpoint to the main app on port 8000
     instrumentator.expose(app, include_in_schema=False)
 
     app.state.model_path = str(MODEL_PATH.resolve())

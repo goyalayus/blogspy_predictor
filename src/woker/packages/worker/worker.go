@@ -18,6 +18,7 @@ import (
 	"worker/packages/db"
 	"worker/packages/domain"
 	"worker/packages/generated"
+	"worker/packages/metrics"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -98,6 +99,14 @@ func (w *Worker) ProcessJobs(ctx context.Context, jobType string, fromStatus, to
 }
 
 func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRecord, jobLogger *slog.Logger) error {
+	// METRICS: Record job duration and active worker count.
+	jobStart := time.Now()
+	metrics.JobQueueActiveWorkers.WithLabelValues("classification").Inc()
+	defer func() {
+		metrics.JobQueueActiveWorkers.WithLabelValues("classification").Dec()
+		metrics.JobDurationSeconds.WithLabelValues("classification").Observe(time.Since(jobStart).Seconds())
+	}()
+
 	jobLogger.Info("Starting classification task", "event", slog.GroupValue(
 		slog.String("name", "CLASSIFICATION_TASK_STARTED"),
 		slog.String("stage", "start"),
@@ -113,6 +122,8 @@ func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRe
 			"details", slog.GroupValue(slog.Any("input", map[string]any{"url": job.URL}), slog.Any("output", map[string]any{"error": err.Error()})),
 		)
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: err.Error()})
+		// METRICS: Increment failure counter.
+		metrics.JobsProcessedTotal.WithLabelValues("classification", "failure").Inc()
 		return nil
 	}
 
@@ -131,37 +142,44 @@ func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRe
 		),
 	)
 
+	// Note: Irrelevant outcomes are considered a "success" from a processing standpoint.
 	if content.IsNonHTML {
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, ErrorMsg: "Content-Type was not HTML"})
+		metrics.JobsProcessedTotal.WithLabelValues("classification", "success").Inc()
 		return nil
 	}
 	if content.IsCSR {
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, Rendering: domain.CSR, ErrorMsg: "Detected Client-Side Rendering"})
+		metrics.JobsProcessedTotal.WithLabelValues("classification", "success").Inc()
 		return nil
 	}
 
 	if content.Language != "eng" && content.Language != "" {
 		errMsg := fmt.Sprintf("Non-English content detected (lang: %s)", content.Language)
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, ErrorMsg: errMsg})
+		metrics.JobsProcessedTotal.WithLabelValues("classification", "success").Inc()
 		return nil
 	}
 
 	reqBody := domain.PredictionRequest{URL: content.FinalURL, HTMLContent: content.HTMLContent, TextContent: content.TextContent}
 	jsonBody, _ := json.Marshal(reqBody)
 
+	// METRICS: Time the external call to the ML API.
 	apiCallStart := time.Now()
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", w.cfg.MLApiURL+"/predict", bytes.NewBuffer(jsonBody))
 	if err != nil {
 		jobLogger.Error("Failed to create prediction request object", "error", err)
+		metrics.JobsProcessedTotal.WithLabelValues("classification", "failure").Inc()
 		return fmt.Errorf("failed to create prediction request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	resp, err := w.httpClient.Do(httpReq)
-	apiCallDuration := time.Since(apiCallStart)
+	metrics.DependencyCallDurationSeconds.WithLabelValues("ml_api").Observe(time.Since(apiCallStart).Seconds())
 
 	if err != nil {
-		jobLogger.Warn("ML API call failed", "event", slog.String("name", "ML_API_CALL_COMPLETED"), "duration_ms", float64(apiCallDuration.Microseconds())/1000.0, "error", err)
+		jobLogger.Warn("ML API call failed", "error", err)
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: "Prediction API call failed: " + err.Error()})
+		metrics.JobsProcessedTotal.WithLabelValues("classification", "failure").Inc()
 		return nil
 	}
 	defer resp.Body.Close()
@@ -170,16 +188,18 @@ func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRe
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		errMsg := fmt.Sprintf("Prediction API returned non-200 status: %d - %s", resp.StatusCode, string(bodyBytes))
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: errMsg})
+		metrics.JobsProcessedTotal.WithLabelValues("classification", "failure").Inc()
 		return nil
 	}
 
 	var predResp domain.PredictionResponse
 	if err := json.NewDecoder(resp.Body).Decode(&predResp); err != nil {
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: "Failed to decode prediction response: " + err.Error()})
+		metrics.JobsProcessedTotal.WithLabelValues("classification", "failure").Inc()
 		return nil
 	}
 
-	jobLogger.Info("ML API call completed", "event", slog.String("name", "ML_API_CALL_COMPLETED"), "is_personal_blog", predResp.IsPersonalBlog)
+	jobLogger.Info("ML API call completed", "is_personal_blog", predResp.IsPersonalBlog)
 
 	if predResp.IsPersonalBlog {
 		if _, err := w.handleCrawlLogic(ctx, job, content, jobLogger); err != nil {
@@ -191,10 +211,21 @@ func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRe
 	} else {
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant})
 	}
+	
+	// METRICS: If we reach here, it's a success.
+	metrics.JobsProcessedTotal.WithLabelValues("classification", "success").Inc()
 	return nil
 }
 
 func (w *Worker) processCrawlTask(ctx context.Context, job domain.URLRecord, jobLogger *slog.Logger) error {
+	// METRICS: Record job duration and active worker count.
+	jobStart := time.Now()
+	metrics.JobQueueActiveWorkers.WithLabelValues("crawling").Inc()
+	defer func() {
+		metrics.JobQueueActiveWorkers.WithLabelValues("crawling").Dec()
+		metrics.JobDurationSeconds.WithLabelValues("crawling").Observe(time.Since(jobStart).Seconds())
+	}()
+
 	jobLogger.Info("Starting crawl task", "event", slog.GroupValue(slog.String("name", "CRAWL_TASK_STARTED"), slog.String("stage", "start")))
 	fetchStart := time.Now()
 	content, err := w.crawler.FetchAndParseContent(ctx, job.URL)
@@ -203,6 +234,7 @@ func (w *Worker) processCrawlTask(ctx context.Context, job domain.URLRecord, job
 	if err != nil {
 		jobLogger.Warn("Content fetch failed", "event", slog.GroupValue(slog.String("name", "CONTENT_FETCH_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(fetchDuration.Microseconds())/1000.0)), "details", slog.GroupValue(slog.Any("error", err.Error())))
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: err.Error()})
+		metrics.JobsProcessedTotal.WithLabelValues("crawling", "failure").Inc()
 		return nil
 	}
 
@@ -210,10 +242,12 @@ func (w *Worker) processCrawlTask(ctx context.Context, job domain.URLRecord, job
 
 	if content.IsNonHTML {
 		w.storage.EnqueueContentInsert(domain.ContentInsertResult{ID: job.ID, Rendering: domain.SSR})
+		metrics.JobsProcessedTotal.WithLabelValues("crawling", "success").Inc()
 		return nil
 	}
 	if content.IsCSR {
 		w.storage.EnqueueContentInsert(domain.ContentInsertResult{ID: job.ID, Rendering: domain.CSR})
+		metrics.JobsProcessedTotal.WithLabelValues("crawling", "success").Inc()
 		return nil
 	}
 
@@ -223,6 +257,8 @@ func (w *Worker) processCrawlTask(ctx context.Context, job domain.URLRecord, job
 	w.storage.EnqueueContentInsert(domain.ContentInsertResult{
 		ID: job.ID, Title: content.Title, Description: content.Description, TextContent: content.TextContent, Rendering: domain.SSR,
 	})
+
+	metrics.JobsProcessedTotal.WithLabelValues("crawling", "success").Inc()
 	return nil
 }
 
@@ -290,7 +326,12 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 		wg.Add(1)
 		go func(n string, u []string) {
 			defer wg.Done()
+			
+			// METRICS: Time the Redis call.
+			redisStart := time.Now()
 			acceptedURLs, err := w.storage.ReserveNetlocSlots(ctx, n, u)
+			metrics.DependencyCallDurationSeconds.WithLabelValues("redis_netloc_reserve").Observe(time.Since(redisStart).Seconds())
+
 			if err != nil {
 				jobLogger.Error("Failed to reserve netloc slots from Redis", "netloc", n, "error", err)
 				return

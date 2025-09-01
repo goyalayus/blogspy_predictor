@@ -7,7 +7,6 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
-      - "9092:9092"
     volumes: ["./logs:/app/logs"]
     environment:
       - LOG_FILE=/app/logs/python_api.log
@@ -30,7 +29,7 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_ADDR=redis:6379
-      - ML_API_URL=http://python-api:8000
+      - ML_API_URL=${ML_API_URL}
       - LOG_FILE=/app/logs/worker.log
       - LOG_LEVEL=${LOG_LEVEL}
     networks: [app-net]
@@ -51,9 +50,9 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_ADDR=redis:6379
+      - ML_API_URL=${ML_API_URL}
       - LOG_FILE=/app/logs/reaper.log
       - LOG_LEVEL=${LOG_LEVEL}
-      - ML_API_URL=${ML_API_URL}
     networks: [app-net]
     depends_on: [redis]
 
@@ -105,15 +104,40 @@ services:
     volumes: [redis-data:/data]
     networks: [app-net]
     healthcheck: { test: ["CMD", "redis-cli", "-h", "localhost", "-p", "6379", "ping"], interval: 10s, timeout: 5s, retries: 5 }
-  
+
+  # --- NEW SERVICES START HERE ---
+
   redis-exporter:
     image: oliver006/redis_exporter:latest
     container_name: redis-exporter
     restart: unless-stopped
-    command: -redis.addr redis:6379  # Tells the exporter where to find Redis
+    command: -redis.addr redis:6379
     networks: [app-net]
+    ports: ["9121:9121"]
     depends_on:
       - redis
+
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:latest
+    container_name: postgres-exporter
+    restart: unless-stopped
+    environment:
+      - DATA_SOURCE_NAME=${DATA_SOURCE_NAME}
+    networks: [app-net]
+    ports: ["9187:9187"]
+
+  node-exporter:
+    image: quay.io/prometheus/node-exporter:latest
+    container_name: node-exporter
+    restart: unless-stopped
+    network_mode: host
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    command:
+      - '--path.rootfs=/host'
+
+  # --- NEW SERVICES END HERE ---
 
   opensearch-node:
     image: opensearchproject/opensearch:2.15.0
