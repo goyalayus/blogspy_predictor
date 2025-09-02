@@ -270,21 +270,15 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 		return 0, nil
 	}
 
-	existingURLsRows, err := w.storage.Queries.GetExistingURLs(ctx, newLinksRaw)
-	if err != nil {
-		return 0, fmt.Errorf("crawl-logic: failed to check existing urls: %w", err)
-	}
-	existingURLs := make(map[string]struct{}, len(existingURLsRows))
-	for _, urlStr := range existingURLsRows {
-		existingURLs[urlStr] = struct{}{}
-	}
+	// --------------------- MODIFICATION START ---------------------
+	// The entire block that called GetExistingURLs and filtered the results
+	// has been removed from here. The raw list of links will now be processed directly.
+	// ---------------------- MODIFICATION END ----------------------
 
 	candidatesByNetloc := make(map[string][]string)
 	for _, link := range newLinksRaw {
-		if _, exists := existingURLs[link]; exists {
-			continue
-		}
-
+		// The `if _, exists := existingURLs[link]` check has been removed.
+		// We proceed directly to parsing and rule-based filtering for every raw link.
 		parsed, err := url.Parse(link)
 		if err != nil || parsed.Host == "" {
 			continue
