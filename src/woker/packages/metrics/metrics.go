@@ -45,8 +45,6 @@ var (
 		},
 	)
 
-	// --- NEW METRICS START HERE ---
-
 	JobsProcessedTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "blogspy_jobs_processed_total",
@@ -80,11 +78,28 @@ var (
 		},
 		[]string{"type"}, // type="classification"|"crawling"
 	)
+
+	NetlocCacheTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "blogspy_netloc_cache_total",
+			Help: "Total number of netloc classification cache attempts.",
+		},
+		[]string{"status"}, // status="hit"|"miss"
+	)
+
+	// --- NEW METRIC START HERE ---
+	ContentStorageDecisionsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "blogspy_content_storage_decisions_total",
+			Help: "Total number of content storage decisions made based on quality filters.",
+		},
+		[]string{"decision"}, // decision="stored"|"skipped_thin_content"
+	)
+	// --- NEW METRIC END HERE ---
 )
 
 func init() {
-	// promauto handles registration automatically, so this function can be left as is.
-	// We are keeping the file structure the same.
+	// promauto handles registration automatically.
 }
 
 func ExposeMetrics(addr string) {

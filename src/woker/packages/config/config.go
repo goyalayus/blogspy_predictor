@@ -25,23 +25,22 @@ type Config struct {
 	RestrictedTLDs             []string
 	AllowedPathPrefixes        []string
 	IgnoreExtensions           []string
-	// NEW: Configuration for the asynchronous writers
-	StatusUpdateBatchSize  int
-	StatusUpdateInterval   time.Duration
-	ContentInsertBatchSize int
-	ContentInsertInterval  time.Duration
-	ContentInsertQueueSize int
-	StatusUpdateQueueSize  int
-	// NEW: Logging configuration
-	LogFile  string
-	LogLevel string
-	// NEW: Redis and Bloom Filter Configuration
-	RedisAddr            string
-	RedisPassword        string
-	RedisDB              int
-	BloomFilterKey       string
-	BloomFilterCapacity  int64
-	BloomFilterErrorRate float64
+	StatusUpdateBatchSize      int
+	StatusUpdateInterval       time.Duration
+	ContentInsertBatchSize     int
+	ContentInsertInterval      time.Duration
+	ContentInsertQueueSize     int
+	StatusUpdateQueueSize      int
+	LogFile                    string
+	LogLevel                   string
+	RedisAddr                  string
+	RedisPassword              string
+	RedisDB                    int
+	BloomFilterKey             string
+	BloomFilterCapacity        int64
+	BloomFilterErrorRate       float64
+	// NEW: Configuration for content quality filter
+	MinAvgParagraphWords int
 }
 
 func Load() (Config, error) {
@@ -73,11 +72,9 @@ func Load() (Config, error) {
 	cfg.FetchTimeout, _ = time.ParseDuration(getEnv("FETCH_TIMEOUT", "6s"))
 	cfg.MaxUrlsPerNetloc, _ = strconv.Atoi(getEnv("MAX_URLS_PER_NETLOC", "130"))
 
-	// Legacy batching config, still used for link insertion
 	cfg.BatchWriteInterval, _ = time.ParseDuration(getEnv("BATCH_WRITE_INTERVAL", "10s"))
 	cfg.BatchWriteQueueSize, _ = strconv.Atoi(getEnv("BATCH_WRITE_QUEUE_SIZE", "1000"))
 
-	// NEW: Config for async writers
 	cfg.NetlocCountRefreshInterval, _ = time.ParseDuration(getEnv("NETLOC_COUNT_REFRESH_INTERVAL", "20s"))
 	cfg.StatusUpdateBatchSize, _ = strconv.Atoi(getEnv("STATUS_UPDATE_BATCH_SIZE", "500"))
 	cfg.StatusUpdateInterval, _ = time.ParseDuration(getEnv("STATUS_UPDATE_INTERVAL", "2s"))
@@ -90,17 +87,19 @@ func Load() (Config, error) {
 	cfg.AllowedPathPrefixes = strings.Split(getEnv("ALLOWED_PATH_PREFIXES", "/blog"), ",")
 	cfg.IgnoreExtensions = strings.Split(getEnv("IGNORE_EXTENSIONS", ".pdf,.jpg,.jpeg,.png,.gif,.zip,.rar,.exe,.mp3,.mp4,.avi,.mov,.dmg,.iso,.css,.js,.xml,.json,.gz,.tar,.tgz"), ",")
 
-	// NEW: Load logging configuration from environment
 	cfg.LogFile = getEnv("LOG_FILE", "logs/worker.log")
 	cfg.LogLevel = getEnv("LOG_LEVEL", "info")
 
-	// NEW: Load Redis and Bloom Filter configuration
 	cfg.RedisAddr = getEnv("REDIS_ADDR", "localhost:6379")
-	cfg.RedisPassword = getEnv("REDIS_PASSWORD", "") // No password by default
+	cfg.RedisPassword = getEnv("REDIS_PASSWORD", "")
 	cfg.RedisDB, _ = strconv.Atoi(getEnv("REDIS_DB", "0"))
 	cfg.BloomFilterKey = getEnv("BLOOM_FILTER_KEY", "blogspy:urls_bloom")
-	cfg.BloomFilterCapacity, _ = strconv.ParseInt(getEnv("BLOOM_FILTER_CAPACITY", "20000000"), 10, 64) // Default: 20 million
-	cfg.BloomFilterErrorRate, _ = strconv.ParseFloat(getEnv("BLOOM_FILTER_ERROR_RATE", "0.0001"), 64)  // Default: 1 in 10,000
+	cfg.BloomFilterCapacity, _ = strconv.ParseInt(getEnv("BLOOM_FILTER_CAPACITY", "20000000"), 10, 64)
+	cfg.BloomFilterErrorRate, _ = strconv.ParseFloat(getEnv("BLOOM_FILTER_ERROR_RATE", "0.0001"), 64)
+
+	// --- NEW CONFIGURATION START HERE ---
+	cfg.MinAvgParagraphWords, _ = strconv.Atoi(getEnv("MIN_AVG_PARAGRAPH_WORDS", "25"))
+	// --- NEW CONFIGURATION END HERE ---
 
 	return cfg, nil
 }

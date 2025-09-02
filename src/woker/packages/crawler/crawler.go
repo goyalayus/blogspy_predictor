@@ -63,28 +63,22 @@ func (c *Crawler) FetchAndParseContent(ctx context.Context, rawURL string) (*dom
 
 	content := &domain.FetchedContent{FinalURL: resp.Request.URL.String(), HTMLContent: htmlContent, GoqueryDoc: doc}
 
-	// Basic CSR detection
 	if doc.Find("#root, #app, [data-reactroot]").Length() > 0 && len(strings.TrimSpace(doc.Find("body").Text())) < 250 {
 		content.IsCSR = true
 	}
-	// Next.js specific CSR bailout indicator
 	if doc.Find("template[data-dgst='BAILOUT_TO_CLIENT_SIDE_RENDERING']").Length() > 0 {
 		content.IsCSR = true
 	}
 
-	// Extract metadata
 	content.Title = strings.TrimSpace(doc.Find("title").First().Text())
 	if val, exists := doc.Find("meta[name='description']").Attr("content"); exists {
 		content.Description = strings.TrimSpace(val)
 	}
 
-	// Extract clean text content once, to be used for both language detection and the final result.
 	doc.Find("script, style, noscript").Remove()
 	re := strings.NewReplacer("\n", " ", "\t", " ", "\r", " ")
 	content.TextContent = strings.Join(strings.Fields(re.Replace(doc.Text())), " ")
 
-	// --- MODIFIED: Language Detection Logic ---
-	// Create a more robust sample for language detection by combining metadata and body text.
 	var textSnippet string
 	words := strings.Fields(content.TextContent)
 	if len(words) > 100 {
@@ -93,23 +87,48 @@ func (c *Crawler) FetchAndParseContent(ctx context.Context, rawURL string) (*dom
 		textSnippet = content.TextContent
 	}
 
-	// Combine title, description, and the first 100 words for a better detection sample.
 	textForDetection := content.Title + " " + content.Description + " " + textSnippet
 
 	if strings.TrimSpace(textForDetection) != "" {
 		info := whatlanggo.Detect(textForDetection)
-		content.Language = info.Lang.Iso6393() // e.g., "eng", "deu"
+		content.Language = info.Lang.Iso6393()
 	}
-	// --- End of modified logic ---
 
 	if content.IsCSR {
 		slog.Debug("Detected client-side rendering", "url", rawURL)
 		return content, nil
 	}
 
-	// The full text content was already extracted above, so no more work is needed here.
 	return content, nil
 }
+
+// --- NEW FUNCTION START HERE ---
+
+// AnalyzeParagraphs calculates the average word count of <p> tags in a document.
+func (c *Crawler) AnalyzeParagraphs(doc *goquery.Document, threshold int) (isSubstantial bool, avgWordCount float64) {
+	paragraphs := doc.Find("p")
+	if paragraphs.Length() == 0 {
+		return false, 0.0
+	}
+
+	var totalWords, paragraphCount int
+	paragraphs.Each(func(i int, s *goquery.Selection) {
+		wordCount := len(strings.Fields(s.Text()))
+		if wordCount > 0 {
+			totalWords += wordCount
+			paragraphCount++
+		}
+	})
+
+	if paragraphCount == 0 {
+		return false, 0.0
+	}
+
+	avgWordCount = float64(totalWords) / float64(paragraphCount)
+	return avgWordCount >= float64(threshold), avgWordCount
+}
+
+// --- NEW FUNCTION END HERE ---
 
 func (c *Crawler) ExtractLinks(doc *goquery.Document, baseURL string, ignoreExtensions []string) []string {
 	base, err := url.Parse(baseURL)

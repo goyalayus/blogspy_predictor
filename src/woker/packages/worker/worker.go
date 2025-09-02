@@ -99,7 +99,6 @@ func (w *Worker) ProcessJobs(ctx context.Context, jobType string, fromStatus, to
 }
 
 func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRecord, jobLogger *slog.Logger) error {
-	// METRICS: Record job duration and active worker count.
 	jobStart := time.Now()
 	metrics.JobQueueActiveWorkers.WithLabelValues("classification").Inc()
 	defer func() {
@@ -107,118 +106,135 @@ func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRe
 		metrics.JobDurationSeconds.WithLabelValues("classification").Observe(time.Since(jobStart).Seconds())
 	}()
 
-	jobLogger.Info("Starting classification task", "event", slog.GroupValue(
-		slog.String("name", "CLASSIFICATION_TASK_STARTED"),
-		slog.String("stage", "start"),
-	))
-
-	fetchStart := time.Now()
-	content, err := w.crawler.FetchAndParseContent(ctx, job.URL)
-	fetchDuration := time.Since(fetchStart)
-
+	parsedURL, err := url.Parse(job.URL)
 	if err != nil {
-		jobLogger.Warn("Content fetch failed",
-			"event", slog.GroupValue(slog.String("name", "CONTENT_FETCH_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(fetchDuration.Microseconds())/1000.0)),
-			"details", slog.GroupValue(slog.Any("input", map[string]any{"url": job.URL}), slog.Any("output", map[string]any{"error": err.Error()})),
-		)
-		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: err.Error()})
-		// METRICS: Increment failure counter.
+		jobLogger.Warn("Could not parse job URL", "url", job.URL, "error", err)
+		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: "Invalid URL"})
+		metrics.JobsProcessedTotal.WithLabelValues("classification", "failure").Inc()
+		return nil
+	}
+	netloc := parsedURL.Host
+
+	jobLogger.Info("Starting classification task", "netloc", netloc)
+
+	status, err := w.storage.GetNetlocClassificationStatus(ctx, netloc)
+	if err != nil {
+		jobLogger.Error("Failed to get netloc classification from Redis", "netloc", netloc, "error", err)
+		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: "Redis lookup failed"})
 		metrics.JobsProcessedTotal.WithLabelValues("classification", "failure").Inc()
 		return nil
 	}
 
-	jobLogger.Info("Content fetch completed",
-		"event", slog.GroupValue(slog.String("name", "CONTENT_FETCH_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(fetchDuration.Microseconds())/1000.0)),
-		"details", slog.GroupValue(
-			slog.Any("input", map[string]any{"url": job.URL}),
-			slog.Any("output", map[string]any{
-				"final_url":        content.FinalURL,
-				"is_html":          !content.IsNonHTML,
-				"is_csr":           content.IsCSR,
-				"language":         content.Language,
-				"html_content_len": len(content.HTMLContent),
-				"text_content_len": len(content.TextContent),
-			}),
-		),
-	)
+	switch {
+	case status > 0: // Case 1: Confirmed Blog Domain
+		metrics.NetlocCacheTotal.WithLabelValues("hit").Inc()
+		jobLogger.Info("Netloc classification cache HIT", "netloc", netloc, "status", "confirmed_blog")
 
-	// Note: Irrelevant outcomes are considered a "success" from a processing standpoint.
-	if content.IsNonHTML {
-		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, ErrorMsg: "Content-Type was not HTML"})
+		content, err := w.crawler.FetchAndParseContent(ctx, job.URL)
+		if err != nil {
+			jobLogger.Warn("Content fetch failed for known blog domain", "error", err)
+			w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: err.Error()})
+			metrics.JobsProcessedTotal.WithLabelValues("classification", "failure").Inc()
+			return nil
+		}
+		
+		w.processContentAndLinks(ctx, job, content, jobLogger, "classification")
+
+	case status < 0: // Case 2: Confirmed Irrelevant Domain
+		metrics.NetlocCacheTotal.WithLabelValues("hit").Inc()
+		jobLogger.Info("Netloc classification cache HIT", "netloc", netloc, "status", "confirmed_irrelevant")
+		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, ErrorMsg: "Domain previously classified as irrelevant"})
 		metrics.JobsProcessedTotal.WithLabelValues("classification", "success").Inc()
-		return nil
-	}
-	if content.IsCSR {
-		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, Rendering: domain.CSR, ErrorMsg: "Detected Client-Side Rendering"})
-		metrics.JobsProcessedTotal.WithLabelValues("classification", "success").Inc()
-		return nil
+
+	default: // Case 3: Domain Not Yet Classified
+		metrics.NetlocCacheTotal.WithLabelValues("miss").Inc()
+		jobLogger.Info("Netloc classification cache MISS", "netloc", netloc)
+
+		homepageURL := fmt.Sprintf("%s://%s", parsedURL.Scheme, netloc)
+		jobLogger.Info("Classifying homepage", "url", homepageURL)
+
+		homepageContent, err := w.crawler.FetchAndParseContent(ctx, homepageURL)
+		if err != nil {
+			jobLogger.Warn("Homepage fetch failed", "url", homepageURL, "error", err)
+			w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: "Homepage fetch failed: " + err.Error()})
+			metrics.JobsProcessedTotal.WithLabelValues("classification", "failure").Inc()
+			return nil
+		}
+
+		if homepageContent.IsNonHTML || homepageContent.IsCSR || (homepageContent.Language != "eng" && homepageContent.Language != "") {
+			jobLogger.Info("Homepage is irrelevant, caching as negative", "netloc", netloc)
+			w.storage.SetNetlocClassificationStatus(ctx, netloc, -1)
+			w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, ErrorMsg: "Domain homepage is irrelevant (non-html, csr, or non-english)"})
+			metrics.JobsProcessedTotal.WithLabelValues("classification", "success").Inc()
+			return nil
+		}
+
+		isBlog, err := w.callMLApi(ctx, homepageURL, homepageContent, jobLogger)
+		if err != nil {
+			jobLogger.Error("ML API call failed for homepage", "error", err)
+			w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: "ML API call failed: " + err.Error()})
+			metrics.JobsProcessedTotal.WithLabelValues("classification", "failure").Inc()
+			return nil
+		}
+
+		if isBlog {
+			jobLogger.Info("Homepage classified as BLOG. Caching as positive.", "netloc", netloc)
+			w.storage.SetNetlocClassificationStatus(ctx, netloc, 1)
+
+			originalContent, err := w.crawler.FetchAndParseContent(ctx, job.URL)
+			if err != nil {
+				jobLogger.Warn("Content fetch failed for original URL after positive homepage classification", "error", err)
+				w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: err.Error()})
+				metrics.JobsProcessedTotal.WithLabelValues("classification", "failure").Inc()
+				return nil
+			}
+
+			w.processContentAndLinks(ctx, job, originalContent, jobLogger, "classification")
+
+		} else {
+			jobLogger.Info("Homepage classified as NOT A BLOG. Caching as negative.", "netloc", netloc)
+			w.storage.SetNetlocClassificationStatus(ctx, netloc, -1)
+			w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, ErrorMsg: "Domain classified as irrelevant via homepage"})
+			metrics.JobsProcessedTotal.WithLabelValues("classification", "success").Inc()
+		}
 	}
 
-	if content.Language != "eng" && content.Language != "" {
-		errMsg := fmt.Sprintf("Non-English content detected (lang: %s)", content.Language)
-		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, ErrorMsg: errMsg})
-		metrics.JobsProcessedTotal.WithLabelValues("classification", "success").Inc()
-		return nil
-	}
+	return nil
+}
 
-	reqBody := domain.PredictionRequest{URL: content.FinalURL, HTMLContent: content.HTMLContent, TextContent: content.TextContent}
+func (w *Worker) callMLApi(ctx context.Context, urlToClassify string, content *domain.FetchedContent, jobLogger *slog.Logger) (bool, error) {
+	reqBody := domain.PredictionRequest{URL: urlToClassify, HTMLContent: content.HTMLContent, TextContent: content.TextContent}
 	jsonBody, _ := json.Marshal(reqBody)
 
-	// METRICS: Time the external call to the ML API.
 	apiCallStart := time.Now()
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", w.cfg.MLApiURL+"/predict", bytes.NewBuffer(jsonBody))
 	if err != nil {
-		jobLogger.Error("Failed to create prediction request object", "error", err)
-		metrics.JobsProcessedTotal.WithLabelValues("classification", "failure").Inc()
-		return fmt.Errorf("failed to create prediction request: %w", err)
+		return false, fmt.Errorf("failed to create prediction request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	resp, err := w.httpClient.Do(httpReq)
 	metrics.DependencyCallDurationSeconds.WithLabelValues("ml_api").Observe(time.Since(apiCallStart).Seconds())
 
 	if err != nil {
-		jobLogger.Warn("ML API call failed", "error", err)
-		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: "Prediction API call failed: " + err.Error()})
-		metrics.JobsProcessedTotal.WithLabelValues("classification", "failure").Inc()
-		return nil
+		return false, fmt.Errorf("prediction API call failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		errMsg := fmt.Sprintf("Prediction API returned non-200 status: %d - %s", resp.StatusCode, string(bodyBytes))
-		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: errMsg})
-		metrics.JobsProcessedTotal.WithLabelValues("classification", "failure").Inc()
-		return nil
+		return false, fmt.Errorf("prediction API returned non-200 status: %d - %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	var predResp domain.PredictionResponse
 	if err := json.NewDecoder(resp.Body).Decode(&predResp); err != nil {
-		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: "Failed to decode prediction response: " + err.Error()})
-		metrics.JobsProcessedTotal.WithLabelValues("classification", "failure").Inc()
-		return nil
+		return false, fmt.Errorf("failed to decode prediction response: %w", err)
 	}
 
-	jobLogger.Info("ML API call completed", "is_personal_blog", predResp.IsPersonalBlog)
-
-	if predResp.IsPersonalBlog {
-		if _, err := w.handleCrawlLogic(ctx, job, content, jobLogger); err != nil {
-			jobLogger.Error("Crawl logic failed, but enqueuing as complete anyway", "error", err)
-		}
-		w.storage.EnqueueContentInsert(domain.ContentInsertResult{
-			ID: job.ID, Title: content.Title, Description: content.Description, TextContent: content.TextContent, Rendering: domain.SSR,
-		})
-	} else {
-		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant})
-	}
-	
-	// METRICS: If we reach here, it's a success.
-	metrics.JobsProcessedTotal.WithLabelValues("classification", "success").Inc()
-	return nil
+	jobLogger.Info("ML API call completed", "url_classified", urlToClassify, "is_personal_blog", predResp.IsPersonalBlog)
+	return predResp.IsPersonalBlog, nil
 }
 
 func (w *Worker) processCrawlTask(ctx context.Context, job domain.URLRecord, jobLogger *slog.Logger) error {
-	// METRICS: Record job duration and active worker count.
 	jobStart := time.Now()
 	metrics.JobQueueActiveWorkers.WithLabelValues("crawling").Inc()
 	defer func() {
@@ -226,40 +242,59 @@ func (w *Worker) processCrawlTask(ctx context.Context, job domain.URLRecord, job
 		metrics.JobDurationSeconds.WithLabelValues("crawling").Observe(time.Since(jobStart).Seconds())
 	}()
 
-	jobLogger.Info("Starting crawl task", "event", slog.GroupValue(slog.String("name", "CRAWL_TASK_STARTED"), slog.String("stage", "start")))
-	fetchStart := time.Now()
+	jobLogger.Info("Starting crawl task")
 	content, err := w.crawler.FetchAndParseContent(ctx, job.URL)
-	fetchDuration := time.Since(fetchStart)
-
 	if err != nil {
-		jobLogger.Warn("Content fetch failed", "event", slog.GroupValue(slog.String("name", "CONTENT_FETCH_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(fetchDuration.Microseconds())/1000.0)), "details", slog.GroupValue(slog.Any("error", err.Error())))
+		jobLogger.Warn("Content fetch failed", "error", err)
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: err.Error()})
 		metrics.JobsProcessedTotal.WithLabelValues("crawling", "failure").Inc()
 		return nil
 	}
-
-	jobLogger.Info("Content fetch completed", "event", slog.GroupValue(slog.String("name", "CONTENT_FETCH_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(fetchDuration.Microseconds())/1000.0)))
-
-	if content.IsNonHTML {
-		w.storage.EnqueueContentInsert(domain.ContentInsertResult{ID: job.ID, Rendering: domain.SSR})
-		metrics.JobsProcessedTotal.WithLabelValues("crawling", "success").Inc()
-		return nil
-	}
-	if content.IsCSR {
-		w.storage.EnqueueContentInsert(domain.ContentInsertResult{ID: job.ID, Rendering: domain.CSR})
-		metrics.JobsProcessedTotal.WithLabelValues("crawling", "success").Inc()
-		return nil
-	}
-
-	if _, err := w.handleCrawlLogic(ctx, job, content, jobLogger); err != nil {
-		jobLogger.Error("Crawl logic failed, but enqueuing as complete anyway", "error", err)
-	}
-	w.storage.EnqueueContentInsert(domain.ContentInsertResult{
-		ID: job.ID, Title: content.Title, Description: content.Description, TextContent: content.TextContent, Rendering: domain.SSR,
-	})
-
-	metrics.JobsProcessedTotal.WithLabelValues("crawling", "success").Inc()
+	
+	w.processContentAndLinks(ctx, job, content, jobLogger, "crawling")
+	
 	return nil
+}
+
+// processContentAndLinks performs the paragraph analysis, decides whether to store content,
+// and always extracts links. This centralizes the logic used by both classification and crawl tasks.
+func (w *Worker) processContentAndLinks(ctx context.Context, job domain.URLRecord, content *domain.FetchedContent, jobLogger *slog.Logger, jobType string) {
+	if content.IsNonHTML || content.IsCSR {
+		// Even if content is invalid, we mark the job 'completed' because it's a final state.
+		// A descriptive message explains why no content was stored.
+		errMsg := "Content is non-HTML or client-side rendered"
+		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Completed, ErrorMsg: errMsg})
+		metrics.JobsProcessedTotal.WithLabelValues(jobType, "success").Inc()
+		return
+	}
+
+	isSubstantial, avgWords := w.crawler.AnalyzeParagraphs(content.GoqueryDoc, w.cfg.MinAvgParagraphWords)
+	jobLogger.Info("Paragraph analysis complete", "avg_word_count", fmt.Sprintf("%.2f", avgWords), "threshold", w.cfg.MinAvgParagraphWords, "is_substantial", isSubstantial)
+
+	if isSubstantial {
+		metrics.ContentStorageDecisionsTotal.WithLabelValues("stored").Inc()
+		jobLogger.Info("Content is substantial, enqueuing for storage.")
+		w.storage.EnqueueContentInsert(domain.ContentInsertResult{
+			ID:          job.ID,
+			Title:       content.Title,
+			Description: content.Description,
+			TextContent: content.TextContent,
+			Rendering:   domain.SSR,
+		})
+	} else {
+		metrics.ContentStorageDecisionsTotal.WithLabelValues("skipped_thin_content").Inc()
+		jobLogger.Info("Content is not substantial, skipping storage. Job will be marked completed.")
+		errMsg := fmt.Sprintf("Content not substantial (avg words per <p> < %d)", w.cfg.MinAvgParagraphWords)
+		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Completed, ErrorMsg: errMsg})
+	}
+	
+	// Link extraction happens regardless of content substantiality.
+	if _, err := w.handleCrawlLogic(ctx, job, content, jobLogger); err != nil {
+		jobLogger.Error("Crawl logic failed, but job is already being marked as completed", "error", err)
+	}
+
+	// This metric applies to the overall job, which is successful if we reach this point.
+	metrics.JobsProcessedTotal.WithLabelValues(jobType, "success").Inc()
 }
 
 func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, content *domain.FetchedContent, jobLogger *slog.Logger) (int, error) {
@@ -270,15 +305,8 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 		return 0, nil
 	}
 
-	// --------------------- MODIFICATION START ---------------------
-	// The entire block that called GetExistingURLs and filtered the results
-	// has been removed from here. The raw list of links will now be processed directly.
-	// ---------------------- MODIFICATION END ----------------------
-
 	candidatesByNetloc := make(map[string][]string)
 	for _, link := range newLinksRaw {
-		// The `if _, exists := existingURLs[link]` check has been removed.
-		// We proceed directly to parsing and rule-based filtering for every raw link.
 		parsed, err := url.Parse(link)
 		if err != nil || parsed.Host == "" {
 			continue
@@ -320,19 +348,33 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 		wg.Add(1)
 		go func(n string, u []string) {
 			defer wg.Done()
-			
-			// METRICS: Time the Redis call.
-			redisStart := time.Now()
-			acceptedURLs, err := w.storage.ReserveNetlocSlots(ctx, n, u)
-			metrics.DependencyCallDurationSeconds.WithLabelValues("redis_netloc_reserve").Observe(time.Since(redisStart).Seconds())
 
+			currentCount, err := w.storage.GetNetlocClassificationStatus(ctx, n)
 			if err != nil {
-				jobLogger.Error("Failed to reserve netloc slots from Redis", "netloc", n, "error", err)
+				jobLogger.Error("Failed to get netloc count for rate-limiting", "netloc", n, "error", err)
 				return
 			}
-			if len(acceptedURLs) > 0 {
+
+			// Only rate-limit known blog domains. New domains (0) or irrelevant (-1) are handled elsewhere.
+			if currentCount > 0 {
+				if currentCount >= w.cfg.MaxUrlsPerNetloc {
+					jobLogger.Debug("Netloc is full, skipping link addition", "netloc", n)
+					return
+				}
+
+				availableSlots := w.cfg.MaxUrlsPerNetloc - currentCount
+				if len(u) > availableSlots {
+					u = u[:availableSlots]
+				}
+			}
+
+			if len(u) > 0 {
+				if err := w.storage.IncrementNetlocCount(ctx, n, len(u)); err != nil {
+					jobLogger.Error("Failed to increment netloc count in Redis", "netloc", n, "error", err)
+					return
+				}
 				mu.Lock()
-				for _, acceptedURL := range acceptedURLs {
+				for _, acceptedURL := range u {
 					finalLinksToQueue = append(finalLinksToQueue, domain.NewLink{
 						URL:    acceptedURL,
 						Netloc: n,

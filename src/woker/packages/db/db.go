@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 	"worker/packages/config"
@@ -25,35 +26,7 @@ const (
 	netlocCountsKey      = "blogspy:netloc_counts"
 )
 
-const reserveNetlocSlotsLua = `
--- KEYS[1]: The hash key for netloc counts (e.g., 'blogspy:netloc_counts')
--- ARGV[1]: The netloc being checked (e.g., 'example.com')
--- ARGV[2]: The maximum number of URLs allowed for this netloc (e.g., 130)
--- ARGV[3...n]: The candidate URL strings to potentially accept
-
-local current_count = tonumber(redis.call('hget', KEYS[1], ARGV[1])) or 0
-local max_limit = tonumber(ARGV[2])
-local links_to_acquire_count = #ARGV - 2
-
-if current_count >= max_limit then
-  return {}
-end
-
-local available_slots = max_limit - current_count
-local accepted_count = math.min(available_slots, links_to_acquire_count)
-
-if accepted_count > 0 then
-  redis.call('hincrby', KEYS[1], ARGV[1], accepted_count)
-  
-  local result = {}
-  for i = 1, accepted_count do
-    table.insert(result, ARGV[i + 2])
-  end
-  return result
-end
-
-return {}
-`
+// --- DELETED: The old reserveNetlocSlotsLua constant was here. ---
 
 type Storage struct {
 	DB                 *pgxpool.Pool
@@ -63,7 +36,7 @@ type Storage struct {
 	linkQueue          chan domain.LinkBatch
 	statusUpdateQueue  chan domain.StatusUpdateResult
 	contentInsertQueue chan domain.ContentInsertResult
-	reserveSlotsScript *redis.Script
+	// --- DELETED: The reserveSlotsScript field was here. ---
 }
 
 func New(ctx context.Context, cfg config.Config) (*Storage, error) {
@@ -96,7 +69,6 @@ func New(ctx context.Context, cfg config.Config) (*Storage, error) {
 		linkQueue:          make(chan domain.LinkBatch, cfg.BatchWriteQueueSize),
 		statusUpdateQueue:  make(chan domain.StatusUpdateResult, cfg.StatusUpdateQueueSize),
 		contentInsertQueue: make(chan domain.ContentInsertResult, cfg.ContentInsertQueueSize),
-		reserveSlotsScript: redis.NewScript(reserveNetlocSlotsLua),
 	}
 
 	go s.linkWriter(ctx)
@@ -106,6 +78,42 @@ func New(ctx context.Context, cfg config.Config) (*Storage, error) {
 
 	return s, nil
 }
+
+// --- NEW FUNCTIONS START HERE ---
+
+// GetNetlocClassificationStatus gets the classification state of a domain from Redis.
+// It returns >0 for a confirmed blog, 0 for unclassified, and -1 for an irrelevant site.
+func (s *Storage) GetNetlocClassificationStatus(ctx context.Context, netloc string) (int, error) {
+	result, err := s.RedisClient.HGet(ctx, netlocCountsKey, netloc).Result()
+	if err != nil {
+		if err == redis.Nil {
+			return 0, nil // Not found is an unclassified state, not an error.
+		}
+		return 0, err // A real error occurred.
+	}
+
+	status, err := strconv.Atoi(result)
+	if err != nil {
+		slog.Error("Could not parse netloc count from Redis, treating as unclassified", "netloc", netloc, "value", result)
+		return 0, nil
+	}
+
+	return status, nil
+}
+
+// SetNetlocClassificationStatus sets the classification state for a domain after initial classification.
+func (s *Storage) SetNetlocClassificationStatus(ctx context.Context, netloc string, status int) error {
+	return s.RedisClient.HSet(ctx, netlocCountsKey, netloc, status).Err()
+}
+
+// IncrementNetlocCount atomically increments the URL count for a known blog domain.
+func (s *Storage) IncrementNetlocCount(ctx context.Context, netloc string, count int) error {
+	return s.RedisClient.HIncrBy(ctx, netlocCountsKey, netloc, int64(count)).Err()
+}
+
+// --- NEW FUNCTIONS END HERE ---
+
+// --- DELETED: The ReserveNetlocSlots function was here. ---
 
 func (s *Storage) GetTotalURLCount(ctx context.Context) (int64, error) {
 	// METRICS: Time this query.
@@ -177,41 +185,6 @@ func (s *Storage) RehydrateNetlocCounts(ctx context.Context) error {
 	duration := time.Since(start)
 	slog.Info("Netloc count rehydration complete.", "duration", duration, "netlocs_added", rowsScanned)
 	return nil
-}
-
-func (s *Storage) ReserveNetlocSlots(ctx context.Context, netloc string, candidateURLs []string) ([]string, error) {
-	if len(candidateURLs) == 0 {
-		return []string{}, nil
-	}
-
-	keys := []string{netlocCountsKey}
-	args := make([]any, 0, len(candidateURLs)+2)
-	args = append(args, netloc, s.cfg.MaxUrlsPerNetloc)
-	for _, u := range candidateURLs {
-		args = append(args, u)
-	}
-
-	res, err := s.reserveSlotsScript.Run(ctx, s.RedisClient, keys, args...).Result()
-	if err != nil {
-		if strings.Contains(err.Error(), "NOSCRIPT") {
-			res, err = s.RedisClient.Eval(ctx, reserveNetlocSlotsLua, keys, args...).Result()
-		}
-		if err != nil {
-			return nil, fmt.Errorf("failed to execute netloc reservation lua script: %w", err)
-		}
-	}
-
-	acceptedInterfaces, ok := res.([]any)
-	if !ok {
-		return nil, fmt.Errorf("unexpected type returned from lua script: %T", res)
-	}
-
-	acceptedURLs := make([]string, len(acceptedInterfaces))
-	for i, v := range acceptedInterfaces {
-		acceptedURLs[i], _ = v.(string)
-	}
-
-	return acceptedURLs, nil
 }
 
 func (s *Storage) Close() {
