@@ -1,3 +1,5 @@
+// FILE: src/woker/packages/db/db.go
+
 // Package db
 package db
 
@@ -26,8 +28,6 @@ const (
 	netlocCountsKey      = "blogspy:netloc_counts"
 )
 
-// --- DELETED: The old reserveNetlocSlotsLua constant was here. ---
-
 type Storage struct {
 	DB                 *pgxpool.Pool
 	Queries            *generated.Queries
@@ -36,7 +36,6 @@ type Storage struct {
 	linkQueue          chan domain.LinkBatch
 	statusUpdateQueue  chan domain.StatusUpdateResult
 	contentInsertQueue chan domain.ContentInsertResult
-	// --- DELETED: The reserveSlotsScript field was here. ---
 }
 
 func New(ctx context.Context, cfg config.Config) (*Storage, error) {
@@ -79,10 +78,6 @@ func New(ctx context.Context, cfg config.Config) (*Storage, error) {
 	return s, nil
 }
 
-// --- NEW FUNCTIONS START HERE ---
-
-// GetNetlocClassificationStatus gets the classification state of a domain from Redis.
-// It returns >0 for a confirmed blog, 0 for unclassified, and -1 for an irrelevant site.
 func (s *Storage) GetNetlocClassificationStatus(ctx context.Context, netloc string) (int, error) {
 	result, err := s.RedisClient.HGet(ctx, netlocCountsKey, netloc).Result()
 	if err != nil {
@@ -101,22 +96,15 @@ func (s *Storage) GetNetlocClassificationStatus(ctx context.Context, netloc stri
 	return status, nil
 }
 
-// SetNetlocClassificationStatus sets the classification state for a domain after initial classification.
 func (s *Storage) SetNetlocClassificationStatus(ctx context.Context, netloc string, status int) error {
 	return s.RedisClient.HSet(ctx, netlocCountsKey, netloc, status).Err()
 }
 
-// IncrementNetlocCount atomically increments the URL count for a known blog domain.
 func (s *Storage) IncrementNetlocCount(ctx context.Context, netloc string, count int) error {
 	return s.RedisClient.HIncrBy(ctx, netlocCountsKey, netloc, int64(count)).Err()
 }
 
-// --- NEW FUNCTIONS END HERE ---
-
-// --- DELETED: The ReserveNetlocSlots function was here. ---
-
 func (s *Storage) GetTotalURLCount(ctx context.Context) (int64, error) {
-	// METRICS: Time this query.
 	start := time.Now()
 	defer func() {
 		metrics.DBQueryDuration.WithLabelValues("GetTotalURLCount").Observe(time.Since(start).Seconds())
@@ -148,7 +136,6 @@ func (s *Storage) RehydrateNetlocCounts(ctx context.Context) error {
 
 	slog.Warn("Netloc counts not found in Redis. Starting rehydration from PostgreSQL. This may be slow.")
 	start := time.Now()
-	// METRICS: Defer timing observation for the whole function.
 	defer func() {
 		metrics.DBQueryDuration.WithLabelValues("RehydrateNetlocCounts").Observe(time.Since(start).Seconds())
 	}()
@@ -258,9 +245,12 @@ func (s *Storage) ResetStalledJobs(ctx context.Context) error {
 		Microseconds: s.cfg.JobTimeout.Microseconds(),
 		Valid:        true,
 	}
-	err := s.Queries.ResetStalledJobs(ctx, interval)
+	// --- MODIFICATION: Capture rows affected and increment metric ---
+	rowsAffected, err := s.Queries.ResetStalledJobs(ctx, interval)
+	if err == nil {
+		metrics.ReaperJobsResetTotal.WithLabelValues("stalled").Add(float64(rowsAffected))
+	}
 	duration := time.Since(start)
-	// METRICS: Observe query duration.
 	metrics.DBQueryDuration.WithLabelValues("ResetStalledJobs").Observe(duration.Seconds())
 
 	if err != nil {
@@ -272,36 +262,14 @@ func (s *Storage) ResetStalledJobs(ctx context.Context) error {
 	}
 	slog.Info("Stalled job reset completed",
 		"event", slog.GroupValue(slog.String("name", "STALLED_JOB_RESET_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(duration.Microseconds())/1000.0)),
-	)
-	return nil
-}
-
-func (s *Storage) ResetOrphanedJobs(ctx context.Context) error {
-	start := time.Now()
-	rowsAffected, err := s.Queries.ResetOrphanedCompletedJobs(ctx)
-	duration := time.Since(start)
-	// METRICS: Observe query duration.
-	metrics.DBQueryDuration.WithLabelValues("ResetOrphanedCompletedJobs").Observe(duration.Seconds())
-
-	if err != nil {
-		slog.Error("Orphaned job reset failed",
-			"event", slog.GroupValue(slog.String("name", "ORPHANED_JOB_RESET_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(duration.Microseconds())/1000.0)),
-			"details", slog.GroupValue(slog.Any("error", err.Error())),
-		)
-		return fmt.Errorf("failed to reset orphaned jobs: %w", err)
-	}
-	slog.Info("Orphaned job reset completed",
-		"event", slog.GroupValue(slog.String("name", "ORPHANED_JOB_RESET_COMPLETED"), slog.String("stage", "end"), slog.Float64("duration_ms", float64(duration.Microseconds())/1000.0)),
 		"details", slog.GroupValue(
-			slog.Any("output", map[string]any{"requeued_job_count": rowsAffected}),
+			slog.Any("output", map[string]any{"reset_count": rowsAffected}),
 		),
 	)
-
 	return nil
 }
 
 func (s *Storage) GetPendingURLCount(ctx context.Context) (int64, error) {
-	// METRICS: Time this query.
 	start := time.Now()
 	defer func() {
 		metrics.DBQueryDuration.WithLabelValues("GetPendingURLCount").Observe(time.Since(start).Seconds())
@@ -320,7 +288,6 @@ func (s *Storage) RefreshPendingURLCount(ctx context.Context) error {
 		CounterName: pendingCounterName,
 	})
 	duration := time.Since(start)
-	// METRICS: Observe query duration.
 	metrics.DBQueryDuration.WithLabelValues("RefreshPendingURLCount").Observe(duration.Seconds())
 
 	if err != nil {
@@ -338,7 +305,6 @@ func (s *Storage) RefreshPendingURLCount(ctx context.Context) error {
 
 func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkBatch) {
 	start := time.Now()
-	// METRICS: Defer timing observation for the whole function.
 	defer func() {
 		metrics.DBQueryDuration.WithLabelValues("processLinkBatches").Observe(time.Since(start).Seconds())
 	}()
@@ -371,7 +337,6 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 		candidateURLInterfaces[i] = v
 	}
 
-	// METRICS: Time the Bloom Filter check.
 	redisStart := time.Now()
 	existsResult, err := s.RedisClient.BFMExists(ctx, s.cfg.BloomFilterKey, candidateURLInterfaces...).Result()
 	metrics.DependencyCallDurationSeconds.WithLabelValues("redis_bloom_exists").Observe(time.Since(redisStart).Seconds())
@@ -500,7 +465,6 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 		for i, v := range newlyAddedURLs {
 			newlyAddedInterfaces[i] = v
 		}
-		// METRICS: Time the Bloom Filter add.
 		redisAddStart := time.Now()
 		_, err := s.RedisClient.BFMAdd(ctx, s.cfg.BloomFilterKey, newlyAddedInterfaces...).Result()
 		metrics.DependencyCallDurationSeconds.WithLabelValues("redis_bloom_add").Observe(time.Since(redisAddStart).Seconds())
@@ -612,7 +576,6 @@ func (s *Storage) RehydrateBloomFilter(ctx context.Context) error {
 			return errors.New("bloom filter rehydration cancelled")
 		default:
 			slog.Info("Fetching URL batch from database for rehydration...", "offset", offset, "batch_size", batchSize)
-			// METRICS: Time this DB call.
 			dbReadStart := time.Now()
 			rows, err := s.DB.Query(ctx, `SELECT url FROM urls LIMIT $1 OFFSET $2`, batchSize, offset)
 			metrics.DBQueryDuration.WithLabelValues("RehydrateBloomFilter_ReadBatch").Observe(time.Since(dbReadStart).Seconds())
@@ -634,7 +597,6 @@ func (s *Storage) RehydrateBloomFilter(ctx context.Context) error {
 				slog.Info("Bloom filter rehydration complete.", "total_urls_added", totalAdded)
 				return nil
 			}
-			// METRICS: Time this Redis call.
 			redisAddStart := time.Now()
 			_, err = s.RedisClient.BFMAdd(ctx, s.cfg.BloomFilterKey, urlBatch...).Result()
 			metrics.DependencyCallDurationSeconds.WithLabelValues("redis_bloom_add").Observe(time.Since(redisAddStart).Seconds())
@@ -690,7 +652,6 @@ func (s *Storage) processStatusUpdates(ctx context.Context, batch []domain.Statu
 		return
 	}
 	start := time.Now()
-	// METRICS: Defer timing for this batch update.
 	defer func() {
 		metrics.DBQueryDuration.WithLabelValues("processStatusUpdates").Observe(time.Since(start).Seconds())
 	}()
@@ -801,7 +762,6 @@ func (s *Storage) processContentInserts(ctx context.Context, batch []domain.Cont
 		return
 	}
 	start := time.Now()
-	// METRICS: Defer timing for this transaction.
 	defer func() {
 		metrics.DBQueryDuration.WithLabelValues("processContentInserts").Observe(time.Since(start).Seconds())
 	}()

@@ -1,6 +1,6 @@
 // FILE: src/woker/cmd/reaper/main.go
-// MODIFIED: This version REMOVES the "Orphaned Job Check" functionality as requested.
-// The Reaper will no longer find 'completed' jobs that are missing content and re-queue them.
+// MODIFIED: The 'refreshContentURLCount' function now uses the fast PostgreSQL
+// statistics estimator (reltuples) instead of a slow COUNT(*) to avoid database load.
 
 package main
 
@@ -65,6 +65,23 @@ func setupLogger(cfg config.Config) {
 	slog.SetDefault(logger)
 }
 
+// --- MODIFIED FUNCTION TO USE FAST ESTIMATOR ---
+func refreshContentURLCount(ctx context.Context, storage *db.Storage) {
+	// Use the fast PostgreSQL estimator instead of a slow COUNT(*).
+	// This provides a nearly instantaneous, but approximate, row count suitable for a gauge.
+	var estimatedCount int64
+	query := `SELECT reltuples::bigint FROM pg_class WHERE relname = 'url_content'`
+	err := storage.DB.QueryRow(ctx, query).Scan(&estimatedCount)
+
+	if err != nil {
+		slog.Error("Failed to get estimated content URL count from pg_class", "error", err)
+		return
+	}
+	metrics.URLsInContentTableTotal.Set(float64(estimatedCount))
+	// Update log to clarify it's an estimate.
+	slog.Info("Refreshed estimated total content URL count metric", "estimated_count", estimatedCount)
+}
+
 func main() {
 	tempCfg, err := config.Load()
 	if err != nil {
@@ -99,15 +116,11 @@ func main() {
 	stalledJobTicker := time.NewTicker(15 * time.Minute)
 	defer stalledJobTicker.Stop()
 
-	// --- MODIFICATION: The orphanCheckTicker has been removed. ---
-
 	slog.Info("Reaper tasks scheduled",
 		"url_counts_refresh", "10s",
 		"stalled_job_reset", "15m",
-		// --- MODIFICATION: "orphan_job_check" log entry removed. ---
 	)
 
-	// Perform initial tasks on startup
 	go func() {
 		if err := storage.RehydrateNetlocCounts(ctx); err != nil {
 			slog.Error("FATAL: Netloc count rehydration failed on startup. Workers may behave incorrectly.", "error", err)
@@ -120,7 +133,7 @@ func main() {
 		_ = storage.RefreshPendingURLCount(ctx)
 		_ = storage.RefreshTotalURLCount(ctx)
 		_ = storage.ResetStalledJobs(ctx)
-		// --- MODIFICATION: The initial call to ResetOrphanedJobs has been removed. ---
+		refreshContentURLCount(ctx, storage) // Also run on startup
 	}()
 
 	for {
@@ -135,11 +148,12 @@ func main() {
 			if err := storage.RefreshTotalURLCount(ctx); err != nil {
 				slog.Error("Failed to refresh total URL count", "error", err)
 			}
+			// Call the modified refresh function periodically
+			refreshContentURLCount(ctx, storage)
 		case <-stalledJobTicker.C:
 			if err := storage.ResetStalledJobs(ctx); err != nil {
 				slog.Error("Failed to reset stalled jobs", "error", err)
 			}
-			// --- MODIFICATION: The case for the orphanCheckTicker has been removed from this select block. ---
 		}
 	}
 }

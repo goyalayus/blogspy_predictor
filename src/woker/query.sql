@@ -1,3 +1,5 @@
+-- FILE: src/woker/query.sql
+
 -- name: LockJobsForUpdate :many
 SELECT id, url FROM urls
 WHERE status = $1
@@ -9,7 +11,7 @@ UPDATE urls
 SET status = $1, locked_at = NOW()
 WHERE id = ANY(@job_ids::bigint[]);
 
--- name: ResetStalledJobs :exec
+-- name: ResetStalledJobs :execrows
 UPDATE urls
 SET
     status = CASE
@@ -33,23 +35,6 @@ UPDATE system_counters SET value = $1, updated_at = NOW() WHERE counter_name = $
 
 -- name: CountPendingURLs :one
 SELECT count(*)::bigint FROM urls WHERE status IN ('pending_classification', 'pending_crawl');
-
--- DELETED: The 'RefreshNetlocCounts' query was here.
-
--- name: ResetOrphanedCompletedJobs :execrows
-UPDATE urls u
-SET
-    status = 'pending_crawl'::crawl_status,
-    processed_at = NULL,
-    error_message = NULL,
-    locked_at = NULL
-WHERE
-    u.status = 'completed'
-    AND NOT EXISTS (
-        SELECT 1
-        FROM url_content uc
-        WHERE uc.url_id = u.id
-    );
 
 -- name: GetTotalURLCount :one
 SELECT count(*)::bigint FROM urls;

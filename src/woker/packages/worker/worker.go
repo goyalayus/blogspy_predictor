@@ -1,3 +1,5 @@
+// FILE: src/woker/packages/worker/worker.go
+
 // Package worker
 package worker
 
@@ -137,14 +139,17 @@ func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRe
 			metrics.JobsProcessedTotal.WithLabelValues("classification", "failure").Inc()
 			return nil
 		}
-		
+
 		w.processContentAndLinks(ctx, job, content, jobLogger, "classification")
+		// --- MODIFICATION: Use specific outcome label
+		metrics.JobsProcessedTotal.WithLabelValues("classification", "classified_blog").Inc()
 
 	case status < 0: // Case 2: Confirmed Irrelevant Domain
 		metrics.NetlocCacheTotal.WithLabelValues("hit").Inc()
 		jobLogger.Info("Netloc classification cache HIT", "netloc", netloc, "status", "confirmed_irrelevant")
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, ErrorMsg: "Domain previously classified as irrelevant"})
-		metrics.JobsProcessedTotal.WithLabelValues("classification", "success").Inc()
+		// --- MODIFICATION: Use specific outcome label
+		metrics.JobsProcessedTotal.WithLabelValues("classification", "classified_irrelevant").Inc()
 
 	default: // Case 3: Domain Not Yet Classified
 		metrics.NetlocCacheTotal.WithLabelValues("miss").Inc()
@@ -165,7 +170,8 @@ func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRe
 			jobLogger.Info("Homepage is irrelevant, caching as negative", "netloc", netloc)
 			w.storage.SetNetlocClassificationStatus(ctx, netloc, -1)
 			w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, ErrorMsg: "Domain homepage is irrelevant (non-html, csr, or non-english)"})
-			metrics.JobsProcessedTotal.WithLabelValues("classification", "success").Inc()
+			// --- MODIFICATION: Use specific outcome label
+			metrics.JobsProcessedTotal.WithLabelValues("classification", "classified_irrelevant").Inc()
 			return nil
 		}
 
@@ -190,12 +196,15 @@ func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRe
 			}
 
 			w.processContentAndLinks(ctx, job, originalContent, jobLogger, "classification")
+			// --- MODIFICATION: Use specific outcome label
+			metrics.JobsProcessedTotal.WithLabelValues("classification", "classified_blog").Inc()
 
 		} else {
 			jobLogger.Info("Homepage classified as NOT A BLOG. Caching as negative.", "netloc", netloc)
 			w.storage.SetNetlocClassificationStatus(ctx, netloc, -1)
 			w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, ErrorMsg: "Domain classified as irrelevant via homepage"})
-			metrics.JobsProcessedTotal.WithLabelValues("classification", "success").Inc()
+			// --- MODIFICATION: Use specific outcome label
+			metrics.JobsProcessedTotal.WithLabelValues("classification", "classified_irrelevant").Inc()
 		}
 	}
 
@@ -250,9 +259,9 @@ func (w *Worker) processCrawlTask(ctx context.Context, job domain.URLRecord, job
 		metrics.JobsProcessedTotal.WithLabelValues("crawling", "failure").Inc()
 		return nil
 	}
-	
+
 	w.processContentAndLinks(ctx, job, content, jobLogger, "crawling")
-	
+
 	return nil
 }
 
@@ -283,18 +292,25 @@ func (w *Worker) processContentAndLinks(ctx context.Context, job domain.URLRecor
 		errMsg := fmt.Sprintf("Content not substantial (avg words per <p> < %d)", w.cfg.MinAvgParagraphWords)
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Completed, ErrorMsg: errMsg})
 	}
-	
+
 	if _, err := w.handleCrawlLogic(ctx, job, content, jobLogger); err != nil {
 		jobLogger.Error("Crawl logic failed, but job is already being marked as completed", "error", err)
 	}
 
-	metrics.JobsProcessedTotal.WithLabelValues(jobType, "success").Inc()
+	// This is the generic success for a crawl job
+	if jobType == "crawling" {
+		metrics.JobsProcessedTotal.WithLabelValues(jobType, "success").Inc()
+	}
 }
 
 func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, content *domain.FetchedContent, jobLogger *slog.Logger) (int, error) {
 	logicStart := time.Now()
 
 	newLinksRaw := w.crawler.ExtractLinks(content.GoqueryDoc, content.FinalURL, w.cfg.IgnoreExtensions)
+
+	// --- MODIFICATION: Add metric for discovered links ---
+	metrics.LinksDiscoveredTotal.WithLabelValues("crawl").Add(float64(len(newLinksRaw)))
+
 	if len(newLinksRaw) == 0 {
 		return 0, nil
 	}
@@ -307,7 +323,6 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 		}
 		netloc := parsed.Host
 
-		// --- NEW BLOCKLIST LOGIC START ---
 		var isBlocked bool
 		for _, blockedSuffix := range w.cfg.BlockedHostSuffixes {
 			if strings.HasSuffix(netloc, blockedSuffix) {
@@ -318,9 +333,8 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 		if isBlocked {
 			jobLogger.Debug("Skipping link from blocked host", "url", link)
 			metrics.LinksSkippedTotal.WithLabelValues("blocked_host").Inc()
-			continue // Immediately discard and move to the next link
+			continue
 		}
-		// --- NEW BLOCKLIST LOGIC END ---
 
 		isRestricted := false
 		for _, tld := range w.cfg.RestrictedTLDs {

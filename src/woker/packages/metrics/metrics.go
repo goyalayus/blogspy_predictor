@@ -1,3 +1,5 @@
+// FILE: src/woker/packages/metrics/metrics.go
+
 // Package metrics
 package metrics
 
@@ -95,7 +97,6 @@ var (
 		[]string{"decision"}, // decision="stored"|"skipped_thin_content"
 	)
 
-	// --- NEW METRIC START HERE ---
 	LinksSkippedTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "blogspy_links_skipped_total",
@@ -103,7 +104,33 @@ var (
 		},
 		[]string{"reason"}, // reason="blocked_host"
 	)
-	// --- NEW METRIC END HERE ---
+
+	// --- NEW METRIC DEFINITIONS START HERE ---
+
+	LinksDiscoveredTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "blogspy_links_discovered_total",
+			Help: "Total number of new links discovered, labeled by source.",
+		},
+		[]string{"source_type"}, // source_type="crawl"
+	)
+
+	URLsInContentTableTotal = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "blogspy_urls_in_content_table_total",
+			Help: "Total number of URLs with content stored in the url_content table.",
+		},
+	)
+
+	ReaperJobsResetTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "reaper_jobs_reset_total",
+			Help: "Total number of jobs reset by the reaper, labeled by type.",
+		},
+		[]string{"type"}, // type="stalled"
+	)
+
+	// --- NEW METRIC DEFINITIONS END HERE ---
 )
 
 func init() {
