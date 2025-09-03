@@ -87,13 +87,21 @@ var (
 		[]string{"status"}, // status="hit"|"miss"
 	)
 
-	// --- NEW METRIC START HERE ---
 	ContentStorageDecisionsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "blogspy_content_storage_decisions_total",
 			Help: "Total number of content storage decisions made based on quality filters.",
 		},
 		[]string{"decision"}, // decision="stored"|"skipped_thin_content"
+	)
+
+	// --- NEW METRIC START HERE ---
+	LinksSkippedTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "blogspy_links_skipped_total",
+			Help: "Total number of discovered links skipped for various reasons.",
+		},
+		[]string{"reason"}, // reason="blocked_host"
 	)
 	// --- NEW METRIC END HERE ---
 )

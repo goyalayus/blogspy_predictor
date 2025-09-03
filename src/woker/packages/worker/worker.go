@@ -256,12 +256,8 @@ func (w *Worker) processCrawlTask(ctx context.Context, job domain.URLRecord, job
 	return nil
 }
 
-// processContentAndLinks performs the paragraph analysis, decides whether to store content,
-// and always extracts links. This centralizes the logic used by both classification and crawl tasks.
 func (w *Worker) processContentAndLinks(ctx context.Context, job domain.URLRecord, content *domain.FetchedContent, jobLogger *slog.Logger, jobType string) {
 	if content.IsNonHTML || content.IsCSR {
-		// Even if content is invalid, we mark the job 'completed' because it's a final state.
-		// A descriptive message explains why no content was stored.
 		errMsg := "Content is non-HTML or client-side rendered"
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Completed, ErrorMsg: errMsg})
 		metrics.JobsProcessedTotal.WithLabelValues(jobType, "success").Inc()
@@ -288,12 +284,10 @@ func (w *Worker) processContentAndLinks(ctx context.Context, job domain.URLRecor
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Completed, ErrorMsg: errMsg})
 	}
 	
-	// Link extraction happens regardless of content substantiality.
 	if _, err := w.handleCrawlLogic(ctx, job, content, jobLogger); err != nil {
 		jobLogger.Error("Crawl logic failed, but job is already being marked as completed", "error", err)
 	}
 
-	// This metric applies to the overall job, which is successful if we reach this point.
 	metrics.JobsProcessedTotal.WithLabelValues(jobType, "success").Inc()
 }
 
@@ -312,6 +306,21 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 			continue
 		}
 		netloc := parsed.Host
+
+		// --- NEW BLOCKLIST LOGIC START ---
+		var isBlocked bool
+		for _, blockedSuffix := range w.cfg.BlockedHostSuffixes {
+			if strings.HasSuffix(netloc, blockedSuffix) {
+				isBlocked = true
+				break
+			}
+		}
+		if isBlocked {
+			jobLogger.Debug("Skipping link from blocked host", "url", link)
+			metrics.LinksSkippedTotal.WithLabelValues("blocked_host").Inc()
+			continue // Immediately discard and move to the next link
+		}
+		// --- NEW BLOCKLIST LOGIC END ---
 
 		isRestricted := false
 		for _, tld := range w.cfg.RestrictedTLDs {
@@ -355,7 +364,6 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 				return
 			}
 
-			// Only rate-limit known blog domains. New domains (0) or irrelevant (-1) are handled elsewhere.
 			if currentCount > 0 {
 				if currentCount >= w.cfg.MaxUrlsPerNetloc {
 					jobLogger.Debug("Netloc is full, skipping link addition", "netloc", n)

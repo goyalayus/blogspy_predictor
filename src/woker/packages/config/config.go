@@ -39,8 +39,9 @@ type Config struct {
 	BloomFilterKey             string
 	BloomFilterCapacity        int64
 	BloomFilterErrorRate       float64
-	// NEW: Configuration for content quality filter
-	MinAvgParagraphWords int
+	MinAvgParagraphWords       int
+	// NEW: Configuration for domain blocklist
+	BlockedHostSuffixes []string
 }
 
 func Load() (Config, error) {
@@ -97,8 +98,10 @@ func Load() (Config, error) {
 	cfg.BloomFilterCapacity, _ = strconv.ParseInt(getEnv("BLOOM_FILTER_CAPACITY", "20000000"), 10, 64)
 	cfg.BloomFilterErrorRate, _ = strconv.ParseFloat(getEnv("BLOOM_FILTER_ERROR_RATE", "0.0001"), 64)
 
-	// --- NEW CONFIGURATION START HERE ---
 	cfg.MinAvgParagraphWords, _ = strconv.Atoi(getEnv("MIN_AVG_PARAGRAPH_WORDS", "25"))
+
+	// --- NEW CONFIGURATION START HERE ---
+	cfg.BlockedHostSuffixes = strings.Split(getEnv("BLOCKED_HOST_SUFFIXES", "medium.com"), ",")
 	// --- NEW CONFIGURATION END HERE ---
 
 	return cfg, nil
