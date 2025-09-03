@@ -1,3 +1,7 @@
+// FILE: src/woker/cmd/reaper/main.go
+// MODIFIED: This version REMOVES the "Orphaned Job Check" functionality as requested.
+// The Reaper will no longer find 'completed' jobs that are missing content and re-queue them.
+
 package main
 
 import (
@@ -95,15 +99,15 @@ func main() {
 	stalledJobTicker := time.NewTicker(15 * time.Minute)
 	defer stalledJobTicker.Stop()
 
-	orphanCheckTicker := time.NewTicker(30 * time.Minute)
-	defer orphanCheckTicker.Stop()
+	// --- MODIFICATION: The orphanCheckTicker has been removed. ---
 
 	slog.Info("Reaper tasks scheduled",
 		"url_counts_refresh", "10s",
 		"stalled_job_reset", "15m",
-		"orphan_job_check", "30m",
+		// --- MODIFICATION: "orphan_job_check" log entry removed. ---
 	)
 
+	// Perform initial tasks on startup
 	go func() {
 		if err := storage.RehydrateNetlocCounts(ctx); err != nil {
 			slog.Error("FATAL: Netloc count rehydration failed on startup. Workers may behave incorrectly.", "error", err)
@@ -116,7 +120,7 @@ func main() {
 		_ = storage.RefreshPendingURLCount(ctx)
 		_ = storage.RefreshTotalURLCount(ctx)
 		_ = storage.ResetStalledJobs(ctx)
-		_ = storage.ResetOrphanedJobs(ctx)
+		// --- MODIFICATION: The initial call to ResetOrphanedJobs has been removed. ---
 	}()
 
 	for {
@@ -135,10 +139,7 @@ func main() {
 			if err := storage.ResetStalledJobs(ctx); err != nil {
 				slog.Error("Failed to reset stalled jobs", "error", err)
 			}
-		case <-orphanCheckTicker.C:
-			if err := storage.ResetOrphanedJobs(ctx); err != nil {
-				slog.Error("Failed to reset orphaned jobs", "error", err)
-			}
+			// --- MODIFICATION: The case for the orphanCheckTicker has been removed from this select block. ---
 		}
 	}
 }
