@@ -23,6 +23,7 @@ services:
     container_name: go-worker
     restart: unless-stopped
     command: ["/worker"]
+    user: "${UID}:${GID}"
     ports:
       - "9091:9091"
     volumes: ["./logs:/app/logs"]
@@ -44,6 +45,7 @@ services:
     container_name: go-reaper
     restart: unless-stopped
     command: ["/reaper"]
+    user: "${UID}:${GID}"
     ports:
       - "9093:9093"
     volumes: ["./logs:/app/logs"]
