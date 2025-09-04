@@ -27,6 +27,13 @@ var (
 			Help: "Total number of URLs in the urls table.",
 		},
 	)
+	BloomFilterChecksTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "blogspy_bloom_filter_checks_total",
+			Help: "Total number of Bloom filter checks, labeled by status.",
+		},
+		[]string{"status"}, // status="hit", "miss", or "false_positive"
+	)
 	BackfillerRecordsProcessed = promauto.NewCounter(
 		prometheus.CounterOpts{
 			Name: "backfiller_records_processed_total",

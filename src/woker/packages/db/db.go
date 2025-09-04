@@ -347,21 +347,21 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 
 	var urlsToCheckInDB []string
 	definitelyNewLinks := make(map[string]domain.NewLink)
-	var bloomHits int
 	if existsResult != nil {
 		for i, exists := range existsResult {
 			urlStr := candidateURLStrings[i]
 			if exists {
 				urlsToCheckInDB = append(urlsToCheckInDB, urlStr)
-				bloomHits++
+				metrics.BloomFilterChecksTotal.WithLabelValues("hit").Inc()
 			} else {
 				definitelyNewLinks[urlStr] = allCandidateLinks[urlStr]
+				metrics.BloomFilterChecksTotal.WithLabelValues("miss").Inc()
 			}
 		}
 	} else {
 		urlsToCheckInDB = candidateURLStrings
 	}
-	slog.Debug("Bloom filter check complete", "candidates", len(candidateURLStrings), "hits", bloomHits, "db_check_required", len(urlsToCheckInDB))
+	slog.Debug("Bloom filter check complete", "candidates", len(candidateURLStrings), "hits", len(urlsToCheckInDB), "misses", len(definitelyNewLinks))
 
 	var newlyAddedURLs []string
 	err = s.WithTransaction(ctx, func(qtx *generated.Queries, tx pgx.Tx) error {
@@ -379,6 +379,14 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 				return nil
 			}); err != nil {
 				return fmt.Errorf("failed to iterate existing URL rows: %w", err)
+			}
+		}
+
+		// We do this *after* querying the DB for ground truth.
+		for _, urlThatWasAHit := range urlsToCheckInDB {
+			if _, actuallyExists := urlToIDMap[urlThatWasAHit]; !actuallyExists {
+				// The filter said "hit", but the DB says it doesn't exist. This is a false positive.
+				metrics.BloomFilterChecksTotal.WithLabelValues("false_positive").Inc()
 			}
 		}
 

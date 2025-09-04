@@ -1,0 +1,12 @@
+# grafana/provisioning/dashboards/dashboards.yml
+apiVersion: 1
+
+providers:
+  - name: 'BlogSpy Dashboards'
+    orgId: 1
+    folder: 'BlogSpy'
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
