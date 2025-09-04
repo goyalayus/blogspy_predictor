@@ -139,12 +139,12 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "Prometheus" },
-          "expr": "blogspy_urls_total",
+          "expr": "blogspy_urls_total{job=\"go-reaper\"}",
           "legendFormat": "Total URLs Discovered"
         },
         {
           "datasource": { "type": "prometheus", "uid": "Prometheus" },
-          "expr": "blogspy_urls_in_content_table_total",
+          "expr": "blogspy_urls_in_content_table_total{job=\"go-reaper\"}",
           "legendFormat": "Total Content Entries Stored (Est.)"
         }
       ]

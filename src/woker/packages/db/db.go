@@ -400,6 +400,19 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 			}
 		}
 
+				// Enforce a hard cap on pending URLs.
+		if count < pendingURLCountLimit {
+			availableSlots := pendingURLCountLimit - count
+			if int64(len(newURLsToInsert)) > availableSlots {
+				slog.Warn("Trimming new URL batch to respect pending URL limit",
+					"original_size", len(newURLsToInsert),
+					"trimmed_size", availableSlots,
+					"limit", pendingURLCountLimit,
+				)
+				newURLsToInsert = newURLsToInsert[:availableSlots]
+			}
+		}
+
 		if len(newURLsToInsert) > 0 {
 			sql := "INSERT INTO urls (url, netloc, status) VALUES "
 			var args []any
