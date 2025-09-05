@@ -90,8 +90,6 @@ services:
       - "host.docker.internal:host-gateway"
     command: --config.file=/etc/prometheus/prometheus.yml
     networks: [app-net]
-    command: --config.file=/etc/prometheus/prometheus.yml
-    networks: [app-net]
 
   grafana:
     image: grafana/grafana-oss:11.1.0
