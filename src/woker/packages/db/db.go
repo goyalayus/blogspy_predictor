@@ -320,15 +320,6 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 	defer func() {
 		metrics.DBQueryDuration.WithLabelValues("processLinkBatches").Observe(time.Since(start).Seconds())
 	}()
-
-	count, err := s.GetPendingURLCount(ctx)
-	if err != nil {
-		slog.Error("Link Writer: Failed to get pending URL count for throttling check", "error", err)
-	} else if count >= pendingURLCountLimit {
-		slog.Warn("Link Writer: Throttling link ingestion, pending queue is full", "count", count, "limit", pendingURLCountLimit)
-		return
-	}
-
 	allCandidateLinks := make(map[string]domain.NewLink)
 	for _, batch := range batches {
 		for _, link := range batch.NewLinks {
@@ -377,6 +368,17 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 
 	var newlyAddedURLs []string
 	err = s.WithTransaction(ctx, func(qtx *generated.Queries, tx pgx.Tx) error {
+		var currentPendingCount int64
+		err := tx.QueryRow(ctx, "SELECT value FROM system_counters WHERE counter_name = $1 FOR UPDATE", pendingCounterName).Scan(&currentPendingCount)
+		if err != nil {
+			return fmt.Errorf("failed to get and lock pending URL count: %w", err)
+		}
+
+		if currentPendingCount >= pendingURLCountLimit {
+			slog.Warn("Link Writer: Throttling link ingestion, pending queue is full inside transaction", "count", currentPendingCount, "limit", pendingURLCountLimit)
+			return nil // Exit the transaction gracefully, inserting nothing.
+		}
+
 		urlToIDMap := make(map[string]int64)
 		if len(urlsToCheckInDB) > 0 {
 			existingRows, err := tx.Query(ctx, `SELECT id, url FROM urls WHERE url = ANY($1)`, urlsToCheckInDB)
@@ -412,17 +414,15 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 			}
 		}
 
-				// Enforce a hard cap on pending URLs.
-		if count < pendingURLCountLimit {
-			availableSlots := pendingURLCountLimit - count
-			if int64(len(newURLsToInsert)) > availableSlots {
-				slog.Warn("Trimming new URL batch to respect pending URL limit",
-					"original_size", len(newURLsToInsert),
-					"trimmed_size", availableSlots,
-					"limit", pendingURLCountLimit,
-				)
-				newURLsToInsert = newURLsToInsert[:availableSlots]
-			}
+		// Enforce a hard cap on pending URLs based on the locked counter.
+		availableSlots := pendingURLCountLimit - currentPendingCount
+		if int64(len(newURLsToInsert)) > availableSlots {
+			slog.Warn("Trimming new URL batch to respect pending URL limit",
+				"original_size", len(newURLsToInsert),
+				"trimmed_size", availableSlots,
+				"limit", pendingURLCountLimit,
+			)
+			newURLsToInsert = newURLsToInsert[:availableSlots]
 		}
 
 		if len(newURLsToInsert) > 0 {
@@ -453,6 +453,16 @@ func (s *Storage) processLinkBatches(ctx context.Context, batches []domain.LinkB
 				return nil
 			}); err != nil {
 				return fmt.Errorf("failed to iterate newly inserted URL rows: %w", err)
+			}
+
+			// Atomically update the counter with the number of URLs we just added.
+			updateCounterSQL := `
+				UPDATE system_counters 
+				SET value = value + $1 
+				WHERE counter_name = $2
+			`
+			if _, err := tx.Exec(ctx, updateCounterSQL, len(newlyAddedURLs), pendingCounterName); err != nil {
+				return fmt.Errorf("failed to increment pending URL counter: %w", err)
 			}
 		}
 
