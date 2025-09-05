@@ -140,6 +140,16 @@ func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRe
 			return nil
 		}
 
+		// --- FIX: Check language even on a cache hit ---
+		// The crawler detects the language, but we need to act on it here.
+		if content.Language != "eng" && content.Language != "" {
+			jobLogger.Info("Content is non-english on a confirmed blog domain, marking as irrelevant", "language", content.Language)
+			w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, ErrorMsg: "Content is non-english"})
+			metrics.JobsProcessedTotal.WithLabelValues("classification", "classified_irrelevant").Inc()
+			return nil
+		}
+		// --- END FIX ---
+
 		w.processContentAndLinks(ctx, job, content, jobLogger, "classification")
 		// --- MODIFICATION: Use specific outcome label
 		metrics.JobsProcessedTotal.WithLabelValues("classification", "classified_blog").Inc()
