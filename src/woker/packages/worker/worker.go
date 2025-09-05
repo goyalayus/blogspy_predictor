@@ -269,7 +269,7 @@ func (w *Worker) processContentAndLinks(ctx context.Context, job domain.URLRecor
 	if content.IsNonHTML || content.IsCSR {
 		errMsg := "Content is non-HTML or client-side rendered"
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Completed, ErrorMsg: errMsg})
-		metrics.JobsProcessedTotal.WithLabelValues(jobType, "success").Inc()
+		metrics.JobsProcessedTotal.WithLabelValues(jobType, "completed_unusable_content").Inc()
 		return
 	}
 
