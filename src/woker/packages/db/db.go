@@ -134,13 +134,22 @@ func (s *Storage) RehydrateNetlocCounts(ctx context.Context) error {
 		return nil
 	}
 
-	slog.Warn("Netloc counts not found in Redis. Starting rehydration from PostgreSQL. This may be slow.")
+	slog.Warn("Netloc counts not found in Redis. Starting rehydration from PostgreSQL with CORRECTED logic.")
 	start := time.Now()
-	defer func() {
-		metrics.DBQueryDuration.WithLabelValues("RehydrateNetlocCounts").Observe(time.Since(start).Seconds())
-	}()
 
-	rows, err := s.DB.Query(ctx, `SELECT netloc, count(id) FROM urls GROUP BY netloc`)
+    // --- THIS IS THE CORRECTED QUERY ---
+	const correctedQuery = `
+		SELECT
+			netloc,
+			CASE
+				WHEN bool_or(status IN ('completed', 'pending_crawl')) THEN 1
+				WHEN bool_and(status IN ('irrelevant', 'failed')) THEN -1
+				ELSE 0
+			END as classification_status
+		FROM urls
+		GROUP BY netloc
+	`
+	rows, err := s.DB.Query(ctx, correctedQuery)
 	if err != nil {
 		return fmt.Errorf("rehydration failed: could not query urls table: %w", err)
 	}
@@ -150,11 +159,14 @@ func (s *Storage) RehydrateNetlocCounts(ctx context.Context) error {
 	var rowsScanned int
 	for rows.Next() {
 		var netloc string
-		var count int
-		if err := rows.Scan(&netloc, &count); err != nil {
+		var status int // Changed from count to status
+		if err := rows.Scan(&netloc, &status); err != nil {
 			return fmt.Errorf("rehydration failed: could not scan row: %w", err)
 		}
-		pipe.HSet(ctx, netlocCountsKey, netloc, count)
+        // Only set non-zero statuses to keep the cache clean.
+        if status != 0 {
+		    pipe.HSet(ctx, netlocCountsKey, netloc, status)
+        }
 		rowsScanned++
 		if rowsScanned%10000 == 0 {
 			if _, err := pipe.Exec(ctx); err != nil {
@@ -170,7 +182,7 @@ func (s *Storage) RehydrateNetlocCounts(ctx context.Context) error {
 	}
 
 	duration := time.Since(start)
-	slog.Info("Netloc count rehydration complete.", "duration", duration, "netlocs_added", rowsScanned)
+	slog.Info("Netloc classification decision rehydration complete.", "duration", duration, "netlocs_processed", rowsScanned)
 	return nil
 }
 
