@@ -57,6 +57,8 @@
 
   [sinks.opensearch_sink.data_stream]
     name = "blogspy"
+    type = "logs"
+
 
   [sinks.opensearch_sink.auth]
     strategy = "basic"
