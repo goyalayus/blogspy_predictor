@@ -8,7 +8,7 @@ import scipy.sparse as sp
 
 # --- Configuration ---
 # The URL of the homepage you want to test
-TARGET_URL = "https://www.socialfollowers.uk/"
+TARGET_URL = "https://squarespace.com"
 
 # Path to your trained model file
 MODEL_PATH = "outputs/models/lgbm_final_model.joblib"

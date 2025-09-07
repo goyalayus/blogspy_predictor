@@ -37,4 +37,5 @@ logs/
 digest.txt
 combined_logs.txt
 src/woker/blogspy_backup_before_migration.sql
+test_model_score.py
 fix.patch
