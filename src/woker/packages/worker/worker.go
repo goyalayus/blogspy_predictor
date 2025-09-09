@@ -387,6 +387,11 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 				jobLogger.Error("Failed to get netloc count for rate-limiting", "netloc", n, "error", err)
 				return
 			}
+			
+			if currentCount < 0 {
+				jobLogger.Debug("Netloc is classified as irrelevant, skipping link addition", "netloc", n)
+				return
+			}
 
 			if currentCount > 0 {
 				if currentCount >= w.cfg.MaxUrlsPerNetloc {

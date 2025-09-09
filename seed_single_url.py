@@ -1,17 +1,18 @@
 import os
 import sys
 import psycopg2
-from dotenv import load_dotenv  # <-- ADD THIS LINE
+from dotenv import load_dotenv
+from urllib.parse import urlparse  # - NEW - Import the urlparse function
 
-load_dotenv()  # <-- ADD THIS LINE to load the .env file
+load_dotenv()
 
 # --- CONFIGURATION ---
-TARGET_URL = "https://www.socialfollowers.uk/buy-tiktok-followers/"
+# Now you only need to change this one line!
+TARGET_URL = "https://www.forbes.com/sites/zacharyfolk/2025/09/08/photo-allegedly-showing-birthday-message-to-epstein-signed-by-trump-given-to-congress/"
 # ---------------------
 
 def get_db_connection():
     """Gets a database connection using the DATABASE_URL environment variable."""
-    # We will get the DATABASE_URL from the environment, which is now populated
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
         print("FATAL: DATABASE_URL environment variable is not set.", file=sys.stderr)
@@ -26,7 +27,6 @@ def get_db_connection():
         print(f"FATAL: Could not connect to the database: {e}", file=sys.stderr)
         sys.exit(1)
 
-# ... the rest of the file (main function) remains exactly the same ...
 def main():
     """Wipes the database and seeds a single URL for testing."""
     conn = get_db_connection()
@@ -40,8 +40,20 @@ def main():
             
             # Step 2: Insert our single target URL
             print(f"\n--- Seeding single URL: {TARGET_URL} ---")
-            # The netloc is extracted here for simplicity
-            netloc = "www.socialfollowers.uk" 
+
+            # - NEW - Automatically extract the netloc from the TARGET_URL
+            try:
+                parsed_url = urlparse(TARGET_URL)
+                netloc = parsed_url.netloc
+                if not netloc:
+                    print(f"FATAL: Could not extract a valid netloc from URL: {TARGET_URL}", file=sys.stderr)
+                    sys.exit(1)
+                print(f"  -> Automatically extracted netloc: {netloc}")
+            except Exception as e:
+                print(f"FATAL: An error occurred while parsing the URL: {e}", file=sys.stderr)
+                sys.exit(1)
+            
+            # Use the dynamically extracted netloc in the query
             cur.execute(
                 "INSERT INTO urls (url, netloc, status) VALUES (%s, %s, %s);",
                 (TARGET_URL, netloc, 'pending_classification')

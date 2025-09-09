@@ -5,9 +5,17 @@ import csv
 import io
 from urllib.parse import urlparse
 import psycopg2
+from dotenv import load_dotenv # Import the library
+
+# Load environment variables from the .env file in the project root
+# NOTE: You may need to install the library first by running:
+# pip install python-dotenv
+load_dotenv()
 
 def get_db_connection():
     """Gets a database connection using the DATABASE_URL environment variable."""
+    # The call to load_dotenv() above populates os.environ from your .env file,
+    # so os.getenv will now find the DATABASE_URL.
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
         print("FATAL: DATABASE_URL environment variable is not set.", file=sys.stderr)
