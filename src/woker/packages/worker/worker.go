@@ -393,16 +393,15 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 				return
 			}
 
-			if currentCount > 0 {
-				if currentCount >= w.cfg.MaxUrlsPerNetloc {
-					jobLogger.Debug("Netloc is full, skipping link addition", "netloc", n)
-					return
-				}
+      availableSlots := w.cfg.MaxUrlsPerNetloc - currentCount
+			if availableSlots <= 0 {
+				jobLogger.Debug("Netloc is full, skipping link addition", "netloc", n, "count", currentCount)
+				return
+			}
 
-				availableSlots := w.cfg.MaxUrlsPerNetloc - currentCount
-				if len(u) > availableSlots {
-					u = u[:availableSlots]
-				}
+			if len(u) > availableSlots {
+				jobLogger.Debug("Trimming link batch to fit available slots", "netloc", n, "original_size", len(u), "trimmed_size", availableSlots)
+				u = u[:availableSlots]
 			}
 
 			if len(u) > 0 {
