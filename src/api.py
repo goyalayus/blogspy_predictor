@@ -1,3 +1,5 @@
+# src/api.py
+
 import joblib
 import pandas as pd
 import scipy.sparse as sp
@@ -17,6 +19,12 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from prometheus_client import Histogram
 import sklearn, lightgbm, platform, hashlib
 
+# --- MODIFICATION START: Add new imports ---
+import requests
+from bs4 import BeautifulSoup
+# --- MODIFICATION END ---
+
+
 project_root = pathlib.Path(__file__).parent.parent
 sys.path.append(str(project_root.resolve()))
 
@@ -25,10 +33,10 @@ from src.feature_engineering import (
     extract_structural_features,
     extract_content_features,
 )
-from src.config import MODELS_DIR
+from src.config import MODELS_DIR, REQUEST_HEADERS, REQUEST_TIMEOUT # Import headers and timeout
 
 # --- METRICS ---
-
+# ... (this section remains the same)
 ML_PIPELINE_DURATION = Histogram(
     "blogspy_ml_pipeline_duration_seconds",
     "Total duration of the ML prediction pipeline."
@@ -41,7 +49,7 @@ ML_FEATURE_ENGINEERING_DURATION = Histogram(
 )
 
 # --- LOGGING CONFIG ---
-
+# ... (this section remains the same)
 LOG_FILE = os.getenv("LOG_FILE", "logs/python_api.log")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
@@ -89,33 +97,71 @@ LOGGING_CONFIG = {
 logging.config.dictConfig(LOGGING_CONFIG)
 logger = logging.getLogger("BlogSpyAPI")
 
-# --- MODEL PATH ---
 
+# --- MODEL PATH ---
+# ... (this section remains the same)
 MODEL_PATH_STR = os.getenv("MODEL_PATH", str(MODELS_DIR / "lgbm_final_model.joblib"))
 MODEL_PATH = pathlib.Path(MODEL_PATH_STR)
 
 
+# --- MODIFICATION START: Create a dedicated fetch/parse function ---
+def _fetch_and_parse(url: str, log_context: dict) -> tuple[str, str, str]:
+    """Fetches, parses, and extracts text from a URL."""
+    try:
+        response = requests.get(url, headers=REQUEST_HEADERS, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        html_content = response.text
+        final_url = response.url # Use the URL after redirects
+    except requests.exceptions.RequestException as e:
+        logger.error(
+            "Failed to fetch URL content",
+            exc_info=True,
+            extra={**log_context, "details": {"error": str(e), "url": url}},
+        )
+        raise HTTPException(status_code=400, detail=f"Failed to fetch URL: {url}. Reason: {e}")
+
+    soup = BeautifulSoup(html_content, 'lxml')
+    for script_or_style in soup(["script", "style"]):
+        script_or_style.decompose()
+    text_content = " ".join(soup.stripped_strings)
+
+    logger.info("Content fetched and parsed successfully", extra={**log_context, "details": {"final_url": final_url}})
+    return final_url, html_content, text_content
+# --- MODIFICATION END ---
+
+
 @ML_PIPELINE_DURATION.time()
 def _run_prediction_pipeline(
-    data: "PredictionRequest",
+    # --- MODIFICATION START: Change input parameters ---
+    request_url: str,
     artifact: dict,
     log_context: dict
+    # --- MODIFICATION END ---
 ) -> tuple[bool, float]:
     """
-    Encapsulates the full feature engineering and prediction pipeline.
+    Encapsulates the full fetch, feature engineering, and prediction pipeline.
     """
     def log_info(message: str, extra: dict):
         merged = {**log_context, **extra}
         logger.info(message, extra=merged)
 
     pipeline_start = time.perf_counter()
-    df = pd.DataFrame([data.dict()])
+
+    # --- MODIFICATION START: Call the new fetch function ---
+    final_url, html_content, text_content = _fetch_and_parse(request_url, log_context)
+    
+    df = pd.DataFrame([{
+        "url": final_url,
+        "html_content": html_content,
+        "text_content": text_content
+    }])
+    # --- MODIFICATION END ---
 
     # Text vectorization
     with ML_FEATURE_ENGINEERING_DURATION.labels(step="vectorization").time():
         txt_feat = artifact["vectorizer"].transform(df["text_content"].fillna(""))
 
-    # Feature fingerprint for text
+    # ... (the rest of this function remains exactly the same)
     log_info(
         "Text feature fingerprint",
         extra={
@@ -137,7 +183,7 @@ def _run_prediction_pipeline(
                 "duration_ms": round(vec_duration, 2),
             },
             "details": {
-                "input": {"text_content_len": len(data.text_content)},
+                "input": {"text_content_len": len(text_content)},
                 "output": {"vector_shape": list(txt_feat.shape)},
             },
         },
@@ -233,7 +279,7 @@ def _run_prediction_pipeline(
                 "duration_ms": round(pipeline_duration, 2),
             },
             "details": {
-                "input": {"url": data.url},
+                "input": {"url": request_url},
                 "output": {
                     "is_personal_blog": is_personal_blog,
                     "prediction_prob": float(prediction_prob),
@@ -247,9 +293,7 @@ def _run_prediction_pipeline(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    Handles application startup. It will load the model and fail fast if it can't.
-    """
+    # ... (this entire function remains the same)
     logger.info("--- Application startup sequence initiated ---")
 
     # Log versions
@@ -334,7 +378,7 @@ instrumentator = Instrumentator().instrument(app)
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    """Logs incoming requests and their processing time with a unique correlation ID."""
+    # ... (this entire function remains the same)
     request_id = str(uuid.uuid4())
     request.state.request_id = request_id
 
@@ -364,18 +408,14 @@ async def log_requests(request: Request, call_next):
     )
     return response
 
-
+# --- MODIFICATION START: The input model is now simpler ---
 class PredictionRequest(BaseModel):
     url: str = Field(
         ...,
-        description="The final URL of the page after any redirects.",
+        description="The URL of the page to fetch and classify.",
         example="https://jvns.ca/",
     )
-    html_content: str = Field(..., description="The full raw HTML of the page.")
-    text_content: str = Field(
-        ..., description="The extracted, cleaned plain text from the page."
-    )
-
+# --- MODIFICATION END ---
 
 class PredictionResponse(BaseModel):
     is_personal_blog: bool
@@ -388,7 +428,7 @@ class PredictionResponse(BaseModel):
 @app.post("/predict", response_model=PredictionResponse)
 def predict(request: PredictionRequest, http_request: Request):
     """
-    Analyzes the provided URL and content to predict its classification.
+    Fetches content from the provided URL and analyzes it to predict its classification.
     """
     request_id = http_request.state.request_id
     base_extra = {"correlation_id": request_id, "service": "python-api"}
@@ -398,34 +438,20 @@ def predict(request: PredictionRequest, http_request: Request):
         extra={
             **base_extra,
             "event": {"name": "PREDICTION_PIPELINE_STARTED", "stage": "start"},
+            # --- MODIFICATION START: Log less input data ---
             "details": {
-                "input": {
-                    "url": request.url,
-                    "html_content_len": len(request.html_content),
-                    "text_content_len": len(request.text_content),
-                }
+                "input": { "url": request.url }
             },
-        },
-    )
-
-    # Input fingerprints
-    logger.info(
-        "Input fingerprints (API)",
-        extra={
-            **base_extra,
-            "details": {
-                "html_md5": hashlib.md5(request.html_content.encode()).hexdigest(),
-                "text_md5": hashlib.md5(request.text_content.encode()).hexdigest(),
-                "text_len": len(request.text_content),
-                "html_len": len(request.html_content),
-            },
+            # --- MODIFICATION END ---
         },
     )
 
     try:
+        # --- MODIFICATION START: Pass only the URL to the pipeline ---
         is_blog, probability = _run_prediction_pipeline(
-            request, app.state.artifact, base_extra
+            request.url, app.state.artifact, base_extra
         )
+        # --- MODIFICATION END ---
 
         confidence = probability if is_blog else 1 - probability
 
@@ -445,6 +471,10 @@ def predict(request: PredictionRequest, http_request: Request):
                 "details": {"error": {"message": str(e)}},
             },
         )
+        # If the exception is an HTTPException we raised, re-raise it.
+        if isinstance(e, HTTPException):
+            raise e
+        # Otherwise, wrap it in a generic 500 error.
         raise HTTPException(
             status_code=500,
             detail=f"An internal error occurred during prediction: {e}",
@@ -453,9 +483,7 @@ def predict(request: PredictionRequest, http_request: Request):
 
 @app.get("/health", status_code=200, summary="Performs a health check on the service.")
 def health_check():
-    """
-    Checks if the service is running and if the model is successfully loaded.
-    """
+    # ... (this entire function remains the same)
     model_loaded = hasattr(app.state, "artifact") and app.state.artifact is not None
     return {
         "status": "ok" if model_loaded else "degraded",

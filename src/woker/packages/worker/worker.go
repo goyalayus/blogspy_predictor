@@ -128,7 +128,7 @@ func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRe
 	}
 
 	switch {
-	case status > 0: // Case 1: Confirmed Blog Domain
+	case status > 0:
 		metrics.NetlocCacheTotal.WithLabelValues("hit").Inc()
 		jobLogger.Info("Netloc classification cache HIT", "netloc", netloc, "status", "confirmed_blog")
 
@@ -140,52 +140,30 @@ func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRe
 			return nil
 		}
 
-		// --- FIX: Check language even on a cache hit ---
-		// The crawler detects the language, but we need to act on it here.
 		if content.Language != "eng" && content.Language != "" {
 			jobLogger.Info("Content is non-english on a confirmed blog domain, marking as irrelevant", "language", content.Language)
 			w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, ErrorMsg: "Content is non-english"})
 			metrics.JobsProcessedTotal.WithLabelValues("classification", "classified_irrelevant").Inc()
 			return nil
 		}
-		// --- END FIX ---
 
 		w.processContentAndLinks(ctx, job, content, jobLogger, "classification")
-		// --- MODIFICATION: Use specific outcome label
 		metrics.JobsProcessedTotal.WithLabelValues("classification", "classified_blog").Inc()
 
-	case status < 0: // Case 2: Confirmed Irrelevant Domain
+	case status < 0:
 		metrics.NetlocCacheTotal.WithLabelValues("hit").Inc()
 		jobLogger.Info("Netloc classification cache HIT", "netloc", netloc, "status", "confirmed_irrelevant")
 		w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, ErrorMsg: "Domain previously classified as irrelevant"})
-		// --- MODIFICATION: Use specific outcome label
 		metrics.JobsProcessedTotal.WithLabelValues("classification", "classified_irrelevant").Inc()
 
-	default: // Case 3: Domain Not Yet Classified
+	default:
 		metrics.NetlocCacheTotal.WithLabelValues("miss").Inc()
 		jobLogger.Info("Netloc classification cache MISS", "netloc", netloc)
 
 		homepageURL := fmt.Sprintf("%s://%s", parsedURL.Scheme, netloc)
-		jobLogger.Info("Classifying homepage", "url", homepageURL)
+		jobLogger.Info("Classifying homepage via ML API", "url", homepageURL)
 
-		homepageContent, err := w.crawler.FetchAndParseContent(ctx, homepageURL)
-		if err != nil {
-			jobLogger.Warn("Homepage fetch failed", "url", homepageURL, "error", err)
-			w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: "Homepage fetch failed: " + err.Error()})
-			metrics.JobsProcessedTotal.WithLabelValues("classification", "failure").Inc()
-			return nil
-		}
-
-		if homepageContent.IsNonHTML || homepageContent.IsCSR || (homepageContent.Language != "eng" && homepageContent.Language != "") {
-			jobLogger.Info("Homepage is irrelevant, caching as negative", "netloc", netloc)
-			w.storage.SetNetlocClassificationStatus(ctx, netloc, -1)
-			w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, ErrorMsg: "Domain homepage is irrelevant (non-html, csr, or non-english)"})
-			// --- MODIFICATION: Use specific outcome label
-			metrics.JobsProcessedTotal.WithLabelValues("classification", "classified_irrelevant").Inc()
-			return nil
-		}
-
-		isBlog, err := w.callMLApi(ctx, homepageURL, homepageContent, jobLogger)
+		isBlog, err := w.callMLApi(ctx, homepageURL, jobLogger)
 		if err != nil {
 			jobLogger.Error("ML API call failed for homepage", "error", err)
 			w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Failed, ErrorMsg: "ML API call failed: " + err.Error()})
@@ -206,23 +184,21 @@ func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRe
 			}
 
 			w.processContentAndLinks(ctx, job, originalContent, jobLogger, "classification")
-			// --- MODIFICATION: Use specific outcome label
 			metrics.JobsProcessedTotal.WithLabelValues("classification", "classified_blog").Inc()
 
 		} else {
 			jobLogger.Info("Homepage classified as NOT A BLOG. Caching as negative.", "netloc", netloc)
 			w.storage.SetNetlocClassificationStatus(ctx, netloc, -1)
 			w.storage.EnqueueStatusUpdate(domain.StatusUpdateResult{ID: job.ID, Status: domain.Irrelevant, ErrorMsg: "Domain classified as irrelevant via homepage"})
-			// --- MODIFICATION: Use specific outcome label
 			metrics.JobsProcessedTotal.WithLabelValues("classification", "classified_irrelevant").Inc()
 		}
 	}
-
 	return nil
 }
-
-func (w *Worker) callMLApi(ctx context.Context, urlToClassify string, content *domain.FetchedContent, jobLogger *slog.Logger) (bool, error) {
-	reqBody := domain.PredictionRequest{URL: urlToClassify, HTMLContent: content.HTMLContent, TextContent: content.TextContent}
+// --- MODIFIED FUNCTION ---
+func (w *Worker) callMLApi(ctx context.Context, urlToClassify string, jobLogger *slog.Logger) (bool, error) {
+    // The request body is now much simpler.
+	reqBody := domain.PredictionRequest{URL: urlToClassify}
 	jsonBody, _ := json.Marshal(reqBody)
 
 	apiCallStart := time.Now()
@@ -241,6 +217,11 @@ func (w *Worker) callMLApi(ctx context.Context, urlToClassify string, content *d
 
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
+		// If the Python API returns a 400 (e.g., fetch failed), we treat it as a non-blog.
+		if resp.StatusCode == http.StatusBadRequest {
+			jobLogger.Warn("ML API returned bad request, likely a fetch failure. Treating as non-blog.", "status_code", resp.StatusCode, "body", string(bodyBytes))
+			return false, nil 
+		}
 		return false, fmt.Errorf("prediction API returned non-200 status: %d - %s", resp.StatusCode, string(bodyBytes))
 	}
 

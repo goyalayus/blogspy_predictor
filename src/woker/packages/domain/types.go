@@ -36,8 +36,6 @@ type FetchedContent struct {
 
 type PredictionRequest struct {
 	URL         string `json:"url"`
-	HTMLContent string `json:"html_content"`
-	TextContent string `json:"text_content"`
 }
 
 type PredictionResponse struct {
