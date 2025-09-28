@@ -14,7 +14,8 @@ import uuid
 from contextlib import asynccontextmanager
 from pythonjsonlogger import jsonlogger
 from prometheus_fastapi_instrumentator import Instrumentator
-from prometheus_client import Histogram # NEW: Import Histogram
+from prometheus_client import Histogram
+import sklearn, lightgbm, platform, hashlib
 
 project_root = pathlib.Path(__file__).parent.parent
 sys.path.append(str(project_root.resolve()))
@@ -26,20 +27,20 @@ from src.feature_engineering import (
 )
 from src.config import MODELS_DIR
 
-# --- NEW METRICS START HERE ---
+# --- METRICS ---
 
 ML_PIPELINE_DURATION = Histogram(
     "blogspy_ml_pipeline_duration_seconds",
     "Total duration of the ML prediction pipeline."
 )
+
 ML_FEATURE_ENGINEERING_DURATION = Histogram(
     "blogspy_ml_feature_engineering_duration_seconds",
     "Duration of specific feature engineering steps.",
     ["step"]
 )
 
-# --- NEW METRICS END HERE ---
-
+# --- LOGGING CONFIG ---
 
 LOG_FILE = os.getenv("LOG_FILE", "logs/python_api.log")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -52,7 +53,6 @@ LOGGING_CONFIG = {
     "formatters": {
         "json": {
             "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
-            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
         },
     },
     "handlers": {
@@ -89,27 +89,46 @@ LOGGING_CONFIG = {
 logging.config.dictConfig(LOGGING_CONFIG)
 logger = logging.getLogger("BlogSpyAPI")
 
+# --- MODEL PATH ---
 
 MODEL_PATH_STR = os.getenv("MODEL_PATH", str(MODELS_DIR / "lgbm_final_model.joblib"))
 MODEL_PATH = pathlib.Path(MODEL_PATH_STR)
 
 
-@ML_PIPELINE_DURATION.time() # METRICS: This decorator times the entire function.
+@ML_PIPELINE_DURATION.time()
 def _run_prediction_pipeline(
-    data: "PredictionRequest", artifact: dict, logger_adapter: logging.LoggerAdapter
+    data: "PredictionRequest",
+    artifact: dict,
+    log_context: dict
 ) -> tuple[bool, float]:
     """
     Encapsulates the full feature engineering and prediction pipeline.
     """
+    def log_info(message: str, extra: dict):
+        merged = {**log_context, **extra}
+        logger.info(message, extra=merged)
+
     pipeline_start = time.perf_counter()
     df = pd.DataFrame([data.dict()])
 
-    # METRICS: Time vectorization step
+    # Text vectorization
     with ML_FEATURE_ENGINEERING_DURATION.labels(step="vectorization").time():
         txt_feat = artifact["vectorizer"].transform(df["text_content"].fillna(""))
 
-    vec_duration = (time.perf_counter() - pipeline_start) * 1000 # Keep original log timing
-    logger_adapter.info(
+    # Feature fingerprint for text
+    log_info(
+        "Text feature fingerprint",
+        extra={
+            "details": {
+                "txt_nnz": int(txt_feat.nnz),
+                "txt_sum": float(txt_feat.sum()),
+                "txt_shape": list(txt_feat.shape),
+            }
+        },
+    )
+
+    vec_duration = (time.perf_counter() - pipeline_start) * 1000
+    log_info(
         "Completed text vectorization",
         extra={
             "event": {
@@ -124,17 +143,17 @@ def _run_prediction_pipeline(
         },
     )
 
+    # Feature engineering
     feat_start = time.perf_counter()
-    # METRICS: Time each feature engineering step
     with ML_FEATURE_ENGINEERING_DURATION.labels(step="url_features").time():
         url_feats = extract_url_features(df["url"])
     with ML_FEATURE_ENGINEERING_DURATION.labels(step="structural_features").time():
         struct_feats = extract_structural_features(df["html_content"])
     with ML_FEATURE_ENGINEERING_DURATION.labels(step="content_features").time():
         content_feats = extract_content_features(df["text_content"])
-    
+
     feat_duration = (time.perf_counter() - feat_start) * 1000
-    logger_adapter.info(
+    log_info(
         "Completed feature engineering",
         extra={
             "event": {
@@ -152,14 +171,41 @@ def _run_prediction_pipeline(
         },
     )
 
+    # Assemble features
     num_feat_df = pd.concat([url_feats, struct_feats, content_feats], axis=1)
     num_feat = sp.csr_matrix(num_feat_df.to_numpy(dtype="float32"))
     features = sp.hstack([txt_feat, num_feat], format="csr")
 
+    # Feature fingerprint for final features
+    log_info(
+        "Final feature fingerprint",
+        extra={
+            "details": {
+                "num_feat_sum": float(num_feat.sum()),
+                "final_nnz": int(features.nnz),
+                "final_shape": list(features.shape),
+            }
+        },
+    )
+
+    # Prediction probability: support sklearn classifiers and LightGBM Booster
     pred_start = time.perf_counter()
-    prediction_prob = artifact["model"].predict(features)[0]
+    model = artifact["model"]
+    try:
+        proba = model.predict_proba(features)
+        if getattr(proba, "ndim", 1) == 2:
+            prediction_prob = float(proba[0, 1])
+        else:
+            prediction_prob = float(proba[0])
+    except AttributeError:
+        preds = model.predict(features)  # LightGBM Booster returns prob for binary
+        if getattr(preds, "ndim", 1) == 2:
+            prediction_prob = float(preds[0, 1])
+        else:
+            prediction_prob = float(preds[0])
+
     pred_duration = (time.perf_counter() - pred_start) * 1000
-    logger_adapter.info(
+    log_info(
         "Completed model prediction",
         extra={
             "event": {
@@ -174,10 +220,11 @@ def _run_prediction_pipeline(
         },
     )
 
+    # Thresholding
     is_personal_blog = bool(prediction_prob > 0.75)
 
     pipeline_duration = (time.perf_counter() - pipeline_start) * 1000
-    logger_adapter.info(
+    log_info(
         "Prediction pipeline completed",
         extra={
             "event": {
@@ -204,7 +251,19 @@ async def lifespan(app: FastAPI):
     Handles application startup. It will load the model and fail fast if it can't.
     """
     logger.info("--- Application startup sequence initiated ---")
-    
+
+    # Log versions
+    logger.info(
+        "Runtime versions",
+        extra={"details": {
+            "python": sys.version,
+            "platform": platform.platform(),
+            "sklearn": sklearn.__version__,
+            "lightgbm": lightgbm.__version__,
+        }}
+    )
+
+    # Expose Prometheus /metrics endpoint
     instrumentator.expose(app, include_in_schema=False)
 
     app.state.model_path = str(MODEL_PATH.resolve())
@@ -269,6 +328,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Prometheus instrumentation
 instrumentator = Instrumentator().instrument(app)
 
 
@@ -331,13 +391,12 @@ def predict(request: PredictionRequest, http_request: Request):
     Analyzes the provided URL and content to predict its classification.
     """
     request_id = http_request.state.request_id
-    logger_adapter = logging.LoggerAdapter(
-        logger, {"correlation_id": request_id, "service": "python-api"}
-    )
+    base_extra = {"correlation_id": request_id, "service": "python-api"}
 
-    logger_adapter.info(
+    logger.info(
         "Prediction request received",
         extra={
+            **base_extra,
             "event": {"name": "PREDICTION_PIPELINE_STARTED", "stage": "start"},
             "details": {
                 "input": {
@@ -349,9 +408,23 @@ def predict(request: PredictionRequest, http_request: Request):
         },
     )
 
+    # Input fingerprints
+    logger.info(
+        "Input fingerprints (API)",
+        extra={
+            **base_extra,
+            "details": {
+                "html_md5": hashlib.md5(request.html_content.encode()).hexdigest(),
+                "text_md5": hashlib.md5(request.text_content.encode()).hexdigest(),
+                "text_len": len(request.text_content),
+                "html_len": len(request.html_content),
+            },
+        },
+    )
+
     try:
         is_blog, probability = _run_prediction_pipeline(
-            request, app.state.artifact, logger_adapter
+            request, app.state.artifact, base_extra
         )
 
         confidence = probability if is_blog else 1 - probability
@@ -363,10 +436,11 @@ def predict(request: PredictionRequest, http_request: Request):
         )
 
     except Exception as e:
-        logger_adapter.error(
+        logger.error(
             "Prediction pipeline failed with an exception",
             exc_info=True,
             extra={
+                **base_extra,
                 "event": {"name": "PREDICTION_PIPELINE_FAILED"},
                 "details": {"error": {"message": str(e)}},
             },
