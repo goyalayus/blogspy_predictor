@@ -134,20 +134,40 @@ func (s *Storage) RehydrateNetlocCounts(ctx context.Context) error {
 		return nil
 	}
 
-	slog.Warn("Netloc counts not found in Redis. Starting rehydration from PostgreSQL with CORRECTED logic.")
+	slog.Warn("Netloc counts not found in Redis. Starting rehydration from PostgreSQL with corrected logic.")
 	start := time.Now()
 
-    // --- THIS IS THE CORRECTED QUERY ---
+	// This corrected query first determines the classification of each domain,
+	// then calculates the actual count of valuable URLs for the domains
+	// classified as blogs, ensuring the restored state is accurate for the
+	// worker's rate-limiting logic.
 	const correctedQuery = `
-		SELECT
-			netloc,
-			CASE
-				WHEN bool_or(status IN ('completed', 'pending_crawl')) THEN 1
-				WHEN bool_and(status IN ('irrelevant', 'failed')) THEN -1
-				ELSE 0
-			END as classification_status
-		FROM urls
-		GROUP BY netloc
+        WITH netloc_classification AS (
+            SELECT
+                netloc,
+                -- First, determine the classification status (blog or not)
+                CASE
+                    WHEN bool_or(status IN ('completed', 'pending_crawl', 'crawling')) THEN 1
+                    WHEN bool_and(status IN ('irrelevant', 'failed')) THEN -1
+                    ELSE 0
+                END as classification
+            FROM urls
+            GROUP BY netloc
+        )
+        SELECT
+            u.netloc,
+            -- Now, based on the classification, calculate the value
+            CASE
+                WHEN nc.classification = 1 THEN
+                    -- If it's a blog, COUNT the valuable URLs we have
+                    COUNT(*) FILTER (WHERE u.status IN ('completed', 'pending_crawl', 'crawling', 'classifying'))
+                ELSE
+                    -- Otherwise, just use the irrelevant flag
+                    nc.classification
+            END as final_value
+        FROM urls u
+        JOIN netloc_classification nc ON u.netloc = nc.netloc
+        GROUP BY u.netloc, nc.classification;
 	`
 	rows, err := s.DB.Query(ctx, correctedQuery)
 	if err != nil {
@@ -159,14 +179,15 @@ func (s *Storage) RehydrateNetlocCounts(ctx context.Context) error {
 	var rowsScanned int
 	for rows.Next() {
 		var netloc string
-		var status int // Changed from count to status
-		if err := rows.Scan(&netloc, &status); err != nil {
+		var value int // Renamed for clarity, this is now a count or a -1 flag
+		if err := rows.Scan(&netloc, &value); err != nil {
 			return fmt.Errorf("rehydration failed: could not scan row: %w", err)
 		}
-        // Only set non-zero statuses to keep the cache clean.
-        if status != 0 {
-		    pipe.HSet(ctx, netlocCountsKey, netloc, status)
-        }
+		// Only set non-zero values to keep the cache clean. A value of 0 means
+		// unclassified, which is the same as not being in the cache.
+		if value != 0 {
+			pipe.HSet(ctx, netlocCountsKey, netloc, value)
+		}
 		rowsScanned++
 		if rowsScanned%10000 == 0 {
 			if _, err := pipe.Exec(ctx); err != nil {
@@ -182,7 +203,7 @@ func (s *Storage) RehydrateNetlocCounts(ctx context.Context) error {
 	}
 
 	duration := time.Since(start)
-	slog.Info("Netloc classification decision rehydration complete.", "duration", duration, "netlocs_processed", rowsScanned)
+	slog.Info("Netloc counts rehydration complete.", "duration", duration, "netlocs_processed", rowsScanned)
 	return nil
 }
 
