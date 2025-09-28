@@ -32,6 +32,10 @@ type Worker struct {
 	httpClient *http.Client
 }
 
+func normalizeNetloc(host string) string {
+	return strings.TrimPrefix(host, "www.")
+}
+
 func New(cfg config.Config, storage *db.Storage, crawler *crawler.Crawler) *Worker {
 	return &Worker{
 		cfg:        cfg,
@@ -115,7 +119,7 @@ func (w *Worker) processClassificationTask(ctx context.Context, job domain.URLRe
 		metrics.JobsProcessedTotal.WithLabelValues("classification", "failure").Inc()
 		return nil
 	}
-	netloc := parsedURL.Host
+	netloc := normalizeNetloc(parsedURL.Host)
 
 	jobLogger.Info("Starting classification task", "netloc", netloc)
 
@@ -321,7 +325,7 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 		if err != nil || parsed.Host == "" {
 			continue
 		}
-		netloc := parsed.Host
+		netloc := normalizeNetloc(parsed.Host)
 
 		var isBlocked bool
 		for _, blockedSuffix := range w.cfg.BlockedHostSuffixes {

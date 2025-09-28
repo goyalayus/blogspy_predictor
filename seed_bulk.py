@@ -41,7 +41,7 @@ def generate_copy_data(file_path, status, has_header=False):
                 try:
                     # Extract the network location (e.g., 'blog.kowalczyk.info')
                     parsed_url = urlparse(url)
-                    netloc = parsed_url.netloc
+                    netloc = parsed_url.netloc.removeprefix('www.')
                     if netloc:
                         # Yield a tab-separated string for COPY. This is the required format.
                         yield f"{url}\t{netloc}\t{status}\n"
