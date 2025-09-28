@@ -296,6 +296,15 @@ func (w *Worker) processContentAndLinks(ctx context.Context, job domain.URLRecor
 			TextContent: content.TextContent,
 			Rendering:   domain.SSR,
 		})
+
+		parsedURL, err := url.Parse(job.URL)
+    if err == nil {
+            // We are processing a substantial page from a blog, so we can now safely
+            // increment the count for this domain by exactly 1.
+      if err := w.storage.IncrementNetlocCount(ctx, parsedURL.Host, 1); err != nil {
+                jobLogger.Error("Failed to increment netloc count after processing substantial content", "netloc", parsedURL.Host, "error", err)
+            }
+					}
 	} else {
 		metrics.ContentStorageDecisionsTotal.WithLabelValues("skipped_thin_content").Inc()
 		jobLogger.Info("Content is not substantial, skipping storage. Job will be marked completed.")
@@ -405,10 +414,6 @@ func (w *Worker) handleCrawlLogic(ctx context.Context, job domain.URLRecord, con
 			}
 
 			if len(u) > 0 {
-				if err := w.storage.IncrementNetlocCount(ctx, n, len(u)); err != nil {
-					jobLogger.Error("Failed to increment netloc count in Redis", "netloc", n, "error", err)
-					return
-				}
 				mu.Lock()
 				for _, acceptedURL := range u {
 					finalLinksToQueue = append(finalLinksToQueue, domain.NewLink{
