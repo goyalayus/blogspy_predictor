@@ -52,8 +52,7 @@ CREATE TABLE system_counters (
 CREATE OR REPLACE FUNCTION url_content_search_vector_update() RETURNS trigger AS $$
 BEGIN
     new.search_vector :=
-        setweight(to_tsvector('english', coalesce(new.title, '')), 'A') ||
-        setweight(to_tsvector('english', coalesce(new.description, '')), 'B');
+        to_tsvector('english', coalesce(new.title, '') || ' ' || coalesce(new.description, '') || ' ' || coalesce(new.content, ''));
     return new;
 END
 $$ LANGUAGE plpgsql;
