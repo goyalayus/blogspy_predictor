@@ -219,9 +219,10 @@ def _run_prediction_pipeline(
     )
 
     # Assemble features
-    num_feat_df = pd.concat([url_feats, struct_feats, content_feats], axis=1)
-    num_feat = sp.csr_matrix(num_feat_df.to_numpy(dtype="float32"))
-    features = sp.hstack([txt_feat, num_feat], format="csr")
+    with ML_FEATURE_ENGINEERING_DURATION.labels(step="feature_assembly").time():
+        num_feat_df = pd.concat([url_feats, struct_feats, content_feats], axis=1)
+        num_feat = sp.csr_matrix(num_feat_df.to_numpy(dtype="float32"))
+        features = sp.hstack([txt_feat, num_feat], format="csr")
 
     # Feature fingerprint for final features
     log_info(
