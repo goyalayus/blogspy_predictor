@@ -237,19 +237,21 @@ def _run_prediction_pipeline(
 
     # Prediction probability: support sklearn classifiers and LightGBM Booster
     pred_start = time.perf_counter()
-    model = artifact["model"]
-    try:
-        proba = model.predict_proba(features)
-        if getattr(proba, "ndim", 1) == 2:
-            prediction_prob = float(proba[0, 1])
-        else:
-            prediction_prob = float(proba[0])
-    except AttributeError:
-        preds = model.predict(features)  # LightGBM Booster returns prob for binary
-        if getattr(preds, "ndim", 1) == 2:
-            prediction_prob = float(preds[0, 1])
-        else:
-            prediction_prob = float(preds[0])
+    with ML_FEATURE_ENGINEERING_DURATION.labels(step="model_prediction").time():
+        # Prediction probability: support sklearn classifiers and LightGBM Booster
+        model = artifact["model"]
+        try:
+            proba = model.predict_proba(features)
+            if getattr(proba, "ndim", 1) == 2:
+                prediction_prob = float(proba[0, 1])
+            else:
+                prediction_prob = float(proba[0])
+        except AttributeError:
+            preds = model.predict(features)  # LightGBM Booster returns prob for binary
+            if getattr(preds, "ndim", 1) == 2:
+                prediction_prob = float(preds[0, 1])
+            else:
+                prediction_prob = float(preds[0])
 
     pred_duration = (time.perf_counter() - pred_start) * 1000
     log_info(
