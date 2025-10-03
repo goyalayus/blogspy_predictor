@@ -148,7 +148,8 @@ def _run_prediction_pipeline(
     pipeline_start = time.perf_counter()
 
     # --- MODIFICATION START: Call the new fetch function ---
-    final_url, html_content, text_content = _fetch_and_parse(request_url, log_context)
+    with ML_FEATURE_ENGINEERING_DURATION.labels(step="fetch_and_parse").time():
+        final_url, html_content, text_content = _fetch_and_parse(request_url, log_context)
     
     df = pd.DataFrame([{
         "url": final_url,
