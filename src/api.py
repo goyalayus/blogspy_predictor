@@ -311,9 +311,6 @@ async def lifespan(app: FastAPI):
         }}
     )
 
-    # Expose Prometheus /metrics endpoint
-    instrumentator.expose(app, include_in_schema=False)
-
     app.state.model_path = str(MODEL_PATH.resolve())
 
     if not MODEL_PATH.exists():
@@ -376,8 +373,16 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Prometheus instrumentation
-instrumentator = Instrumentator().instrument(app)
+instrumentator = Instrumentator(
+    # keep only /predict by excluding everything else (negative lookahead)
+    excluded_handlers=[r"^/(?!predict$).*"],
+    # or, if wanting most routes but not metrics/docs:
+    # excluded_handlers=[r"^/metrics$", r"^/docs$", r"^/redoc$", r"^/openapi.json$"]
+    # optional flags per preference:
+    # should_ignore_untemplated=False,
+)
+instrumentator.instrument(app)
+instrumentator.expose(app, include_in_schema=False)
 
 
 @app.middleware("http")
