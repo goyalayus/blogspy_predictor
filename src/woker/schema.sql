@@ -1,4 +1,5 @@
 CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS plpgsql;
 
 CREATE TYPE crawl_status AS ENUM (
     'pending_classification',
@@ -23,8 +24,7 @@ CREATE TABLE urls (
     rendering rendering_type,
     error_message TEXT,
     locked_at TIMESTAMPTZ,
-    processed_at TIMESTAMPTZ,
-    pagerank_score REAL DEFAULT 1.0
+    processed_at TIMESTAMPTZ
 );
 
 CREATE TABLE url_content (
@@ -32,8 +32,7 @@ CREATE TABLE url_content (
     title TEXT,
     description TEXT,
     content TEXT,
-    search_vector tsvector,
-    embedding vector(256)
+    search_vector tsvector
 );
 
 CREATE TABLE url_edges (
@@ -67,6 +66,5 @@ CREATE INDEX idx_urls_netloc ON urls (netloc);
 CREATE INDEX idx_urls_pending_classification ON urls (id) WHERE status = 'pending_classification';
 CREATE INDEX idx_urls_pending_crawl ON urls (id) WHERE status = 'pending_crawl';
 CREATE INDEX idx_url_content_search_vector ON url_content USING GIN(search_vector);
-CREATE INDEX idx_url_content_embedding ON url_content USING hnsw (embedding vector_cosine_ops);
 INSERT INTO system_counters (counter_name) VALUES ('pending_urls_count');
 

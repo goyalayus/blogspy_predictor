@@ -9,7 +9,6 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/pgvector/pgvector-go"
 )
 
 type CrawlStatus string
@@ -108,15 +107,14 @@ type SystemCounter struct {
 }
 
 type Url struct {
-	ID            int64
-	Url           string
-	Netloc        string
-	Status        CrawlStatus
-	Rendering     NullRenderingType
-	ErrorMessage  pgtype.Text
-	LockedAt      pgtype.Timestamptz
-	ProcessedAt   pgtype.Timestamptz
-	PagerankScore pgtype.Float4
+	ID           int64
+	Url          string
+	Netloc       string
+	Status       CrawlStatus
+	Rendering    NullRenderingType
+	ErrorMessage pgtype.Text
+	LockedAt     pgtype.Timestamptz
+	ProcessedAt  pgtype.Timestamptz
 }
 
 type UrlContent struct {
@@ -125,7 +123,6 @@ type UrlContent struct {
 	Description  pgtype.Text
 	Content      pgtype.Text
 	SearchVector interface{}
-	Embedding    pgvector.Vector
 }
 
 type UrlEdge struct {
